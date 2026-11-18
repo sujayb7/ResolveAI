@@ -252,7 +252,8 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         var draft = Rca.Patch(db, id, patch) ?? throw new AppError(404, "RCA draft not found");
         if (string.Equals(patch.Status, "reviewed", StringComparison.OrdinalIgnoreCase))
         {
-            db.Run("UPDATE incidents SET status = 'reviewed' WHERE id = @id", new { id = draft.IncidentId });
+            // Stored as "resolved" (shown as "Reviewed"): the schema's CHECK constraint has no "reviewed" status.
+            db.Run("UPDATE incidents SET status = 'resolved', resolved_at = COALESCE(resolved_at, @now) WHERE id = @id", new { id = draft.IncidentId, now = Js.IsoNow() });
         }
         return draft;
     }
