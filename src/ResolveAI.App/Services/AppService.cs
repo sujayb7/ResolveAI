@@ -19,6 +19,9 @@ public sealed record KnowledgeBody(string Id, string Title, string DocType, stri
 /// <summary>Who is asking: both the HTTP API and the Blazor UI supply this, so the same checks apply to each.</summary>
 public sealed record Caller(string? AccessCode, bool IsLocal);
 
+/// <summary>Teams notifications as the Settings page shows them: On = switched on; Configured = a webhook URL exists.</summary>
+public sealed record TeamsStatus(bool On, bool Configured, string? UrlHint, string Source, bool HasDefault);
+
 /// <summary>
 /// Everything the app does. The HTTP routes and the Blazor components both call this, so the access code, the daily live
 /// limit, input limits and ownership checks can't be bypassed from either side.
@@ -411,6 +414,68 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         var value = show ? "1" : "0";
         db.Run("INSERT OR REPLACE INTO app_prefs (name, value) VALUES ('show_model_name', @value)", new { value });
         _showModelName = value;
+    }
+
+    // Settings → Microsoft Teams
+
+    /// <summary>What the Settings page shows about Teams notifications. Never contains the full URL.</summary>
+    public TeamsStatus GetTeamsStatus()
+    {
+        if (notifier is null) return new TeamsStatus(false, false, null, "none", false);
+        var saved = llmStore?.LoadTeams();
+        var source = saved?.Url is not null ? "Settings page" : notifier.Url is not null ? "default (TEAMS_WEBHOOK_URL)" : "none";
+        return new TeamsStatus(notifier.On, notifier.Url is not null, notifier.Url is null ? null : TeamsNotifier.Hint(notifier.Url), source, settings.TeamsWebhookUrl is not null);
+    }
+
+    /// <summary>Called once at startup: a webhook or on/off choice saved on the Settings page wins over .env.</summary>
+    public void RestoreSavedTeams()
+    {
+        if (notifier is null || llmStore?.LoadTeams() is not { } saved) return;
+        notifier.Configure(saved.Url ?? settings.TeamsWebhookUrl, saved.On);
+    }
+
+    /// <summary>
+    /// Sends a test card to the typed URL (or the current one when empty). Saved, encrypted, only if Teams accepted it;
+    /// a failed test changes nothing.
+    /// </summary>
+    public async Task<string> TestAndSaveTeams(string? url, Caller caller)
+    {
+        RequireAdmin(caller);
+        if (notifier is null) throw new AppError(400, "Teams notifications are not available on this server.");
+        var typed = url?.Trim() ?? "";
+        var target = typed.Length > 0 ? typed : notifier.Url ?? throw new AppError(400, "Enter a Teams webhook URL.");
+        if (target.Length > 2000 || !Uri.TryCreate(target, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            throw new AppError(400, "Invalid request: the webhook must be an https:// URL.");
+        try
+        {
+            await Investigations.WithTimeout(async ct => { await notifier.SendTest(target, ct); return true; }, TimeSpan.FromSeconds(30), "Teams did not answer within 30 seconds.");
+        }
+        catch (Exception err) when (err is not AppError)
+        {
+            throw new AppError(502, $"Teams did not accept the test message. {(err is InvalidOperationException or TimeoutException ? err.Message : "Check the URL and the network.")} Nothing was saved.");
+        }
+        var custom = target == settings.TeamsWebhookUrl ? null : target;
+        llmStore?.SaveTeams(custom, on: true);
+        notifier.Configure(target, on: true);
+        return "Test message sent. Check the Teams channel; notifications are on.";
+    }
+
+    public void SetTeamsOn(bool on, Caller caller)
+    {
+        RequireAdmin(caller);
+        if (notifier is null) return;
+        var saved = llmStore?.LoadTeams();
+        llmStore?.SaveTeams(saved?.Url, on);
+        notifier.Configure(notifier.Url, on);
+    }
+
+    /// <summary>Forgets the URL saved on the Settings page and goes back to TEAMS_WEBHOOK_URL.</summary>
+    public void ResetTeamsUrl(Caller caller)
+    {
+        RequireAdmin(caller);
+        if (notifier is null) return;
+        llmStore?.SaveTeams(null, notifier.On);
+        notifier.Configure(settings.TeamsWebhookUrl, notifier.On);
     }
 
     public void DemoReset(Caller caller)

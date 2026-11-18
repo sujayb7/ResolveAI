@@ -3,12 +3,67 @@ using ResolveAI.Contracts;
 
 namespace ResolveAI.App.Services;
 
+/// <summary>
+/// Posts to a Microsoft Teams channel webhook. The URL starts as TEAMS_WEBHOOK_URL and can be replaced or switched off from the
+/// Settings page (<see cref="Configure"/>), so it is read on every send.
+/// </summary>
 public sealed class TeamsNotifier(HttpClient http, string? webhookUrl)
 {
     private readonly HttpClient _http = http;
-    private readonly string? _webhookUrl = string.IsNullOrWhiteSpace(webhookUrl) ? null : webhookUrl.Trim();
+    private volatile string? _webhookUrl = Clean(webhookUrl);
+    private volatile bool _on = true;
 
-    public bool Enabled => !string.IsNullOrWhiteSpace(_webhookUrl);
+    public bool Enabled => _on && _webhookUrl is not null;
+    public string? Url => _webhookUrl;
+    public bool On => _on;
+
+    public void Configure(string? url, bool on)
+    {
+        _webhookUrl = Clean(url);
+        _on = on;
+    }
+
+    private static string? Clean(string? url) => string.IsNullOrWhiteSpace(url) ? null : url.Trim();
+
+    /// <summary>Enough to recognise the webhook ("default9e19….powerplatform.com/…Ab12cd"), not enough to post to it.</summary>
+    public static string Hint(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return "••••";
+        var host = u.Host.Length > 24 ? $"{u.Host[..10]}…{u.Host[^14..]}" : u.Host;
+        return url.Length < 24 ? host : $"{host}/…{url[^6..]}";
+    }
+
+    /// <summary>Sends a small "test" card to <paramref name="url"/>; throws with the reason if Teams does not accept it.</summary>
+    public async Task SendTest(string url, CancellationToken ct = default)
+    {
+        var card = Card(
+            new { type = "TextBlock", size = "Medium", weight = "Bolder", text = "ResolveAI test message", wrap = true },
+            new { type = "TextBlock", text = "Teams notifications are connected. You'll get a message here when an investigation completes.", wrap = true },
+            new { type = "TextBlock", spacing = "Small", isSubtle = true, text = DateTimeOffset.UtcNow.ToString("u"), wrap = true });
+        await Post(url, card, ct);
+    }
+
+    private static Dictionary<string, object?> Card(params object[] body) => new()
+    {
+        ["type"] = "AdaptiveCard",
+        ["$schema"] = "http://adaptivecards.io/schemas/adaptive-card.json",
+        ["version"] = "1.4",
+        ["body"] = body,
+    };
+
+    private async Task Post(string url, object card, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(Json.Serialize(card), Encoding.UTF8, "application/json"),
+        };
+        using var res = await _http.SendAsync(req, ct);
+        if (!res.IsSuccessStatusCode)
+        {
+            var error = await res.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException($"Teams returned {(int)res.StatusCode}: {(error.Length > 200 ? error[..200] + "…" : error)}");
+        }
+    }
 
     public async Task NotifyInvestigationCompleted(Incident incident, Investigation investigation, CancellationToken ct = default)
     {
@@ -60,15 +115,6 @@ Summary: {summary}
             }
         };
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, _webhookUrl)
-        {
-            Content = new StringContent(Json.Serialize(card), Encoding.UTF8, "application/json")
-        };
-        using var res = await _http.SendAsync(req, ct);
-        if (!res.IsSuccessStatusCode)
-        {
-            var error = await res.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"Teams notification failed with {(int)res.StatusCode}: {error}");
-        }
+        await Post(_webhookUrl!, card, ct);
     }
 }

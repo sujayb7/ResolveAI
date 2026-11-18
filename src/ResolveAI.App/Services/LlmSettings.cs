@@ -1,3 +1,4 @@
+using Dapper;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.DataProtection;
@@ -109,6 +110,34 @@ public sealed class LlmSettingsStore(Db db, IDataProtectionProvider protection)
         new { provider, model, baseUrl, protectedKey = _protector.Protect(key), hint = LlmKeys.Hint(key), fingerprint = LlmKeys.Fingerprint(key), testedAt });
 
     public void Clear() => db.Run("DELETE FROM llm_settings");
+
+    // Teams webhook from the Settings page, kept in app_prefs. The URL is a secret (anyone with it can post), so it is encrypted too.
+    private readonly IDataProtector _teams = protection.CreateProtector("ResolveAI.TeamsWebhook.v1");
+
+    /// <summary>The saved Teams settings: Url null = use TEAMS_WEBHOOK_URL; On false = notifications switched off. Null when never saved.</summary>
+    public (string? Url, bool On)? LoadTeams()
+    {
+        var on = db.Get<string>("SELECT value FROM app_prefs WHERE name = 'teams_on'");
+        if (on is null) return null;
+        var stored = db.Get<string>("SELECT value FROM app_prefs WHERE name = 'teams_webhook'");
+        string? url = null;
+        try
+        {
+            if (stored is not null) url = _teams.Unprotect(stored);
+        }
+        catch (CryptographicException)
+        {
+            url = null;
+        }
+        return (url, on == "1");
+    }
+
+    public void SaveTeams(string? url, bool on) => db.Tx((conn, tx) =>
+    {
+        conn.Execute("INSERT OR REPLACE INTO app_prefs (name, value) VALUES ('teams_on', @on)", new { on = on ? "1" : "0" }, tx);
+        if (url is null) conn.Execute("DELETE FROM app_prefs WHERE name = 'teams_webhook'", transaction: tx);
+        else conn.Execute("INSERT OR REPLACE INTO app_prefs (name, value) VALUES ('teams_webhook', @v)", new { v = _teams.Protect(url) }, tx);
+    });
 
     public List<LlmUsageRow> Usage()
     {

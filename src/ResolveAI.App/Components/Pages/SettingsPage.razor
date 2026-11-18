@@ -193,6 +193,57 @@
         }
     </Card>
 
+    <Card Title="Microsoft Teams" Icon="signals">
+        <label class="flex cursor-pointer items-start justify-between gap-4">
+            <span class="text-sm">
+                <span class="block font-medium text-slate-700">Post to Teams when an investigation completes</span>
+                <span class="block text-xs text-slate-500" data-testid="teams-status">
+                    @if (!_teams.Configured)
+                    {
+                        <text>No webhook yet: add one below.</text>
+                    }
+                    else
+                    {
+                        <text>Webhook <span class="font-mono">@_teams.UrlHint</span> · @_teams.Source</text>
+                    }
+                </span>
+            </span>
+            <input type="checkbox" role="switch" class="peer sr-only" checked="@_teams.On" @onchange="ToggleTeams" disabled="@(!_teams.Configured)" data-testid="teams-on" />
+            <span aria-hidden="true" class="@Ui.Cx("relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-disabled:opacity-50", _teams.On && _teams.Configured ? "bg-blue-600" : "bg-slate-300")">
+                <span class="@Ui.Cx("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all", _teams.On && _teams.Configured ? "left-[18px]" : "left-0.5")"></span>
+            </span>
+        </label>
+
+        <form class="mt-4 space-y-2 border-t border-slate-100 pt-4" @onsubmit="TestTeams" @onsubmit:preventDefault="true">
+            <label class="block space-y-1 text-sm font-medium text-slate-700">
+                Webhook URL
+                <input type="password" @bind="_teamsUrl" @bind:event="oninput" maxlength="2000" autocomplete="off" data-testid="teams-url"
+                       placeholder="@(_teams.Configured ? "Leave empty to keep the current webhook" : "https://…")"
+                       class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono font-normal" />
+                <span class="block text-xs font-normal text-slate-500">Teams channel → Workflows → "Post to a channel when a webhook request is received". Saved encrypted after a passing test.</span>
+            </label>
+            <div class="flex flex-wrap items-center gap-2">
+                <Btn Type="submit" Variant="primary" Disabled="@_teamsBusy" data-testid="teams-test">
+                    @if (_teamsBusy)
+                    {
+                        <Spinner Class="h-3.5 w-3.5" />
+                    }
+                    @(_teamsBusy ? "Sending…" : "Send test message and save")
+                </Btn>
+                @if (_teams.Source == "Settings page" && _teams.HasDefault)
+                {
+                    <Btn Variant="ghost" OnClick="ResetTeams" Disabled="@_teamsBusy">Use default webhook</Btn>
+                }
+            </div>
+        </form>
+        @if (_teamsResult is not null)
+        {
+            <div class="@Ui.Cx("mt-3 rounded-md px-3 py-2 text-sm", _teamsOk ? "bg-emerald-50 text-emerald-900" : "bg-red-50 text-red-900")" data-testid="teams-result">
+                <strong>@(_teamsOk ? "✓ Sent." : "✗ Failed.")</strong> @_teamsResult
+            </div>
+        }
+    </Card>
+
     <Card Title="Data source" Icon="source">
         <dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
             <dt class="text-slate-500">Data</dt>
@@ -314,6 +365,55 @@
         _showModel = Service.ShowModelName;
     }
 
+    private TeamsStatus _teams = new(false, false, null, "none", false);
+    private string _teamsUrl = "";
+    private bool _teamsBusy;
+    private bool _teamsOk;
+    private string? _teamsResult;
+
+    private Caller Me => new(Codes.Current, IsLocal);
+
+    private async Task TestTeams()
+    {
+        _teamsBusy = true;
+        _teamsResult = null;
+        try
+        {
+            _teamsResult = await Service.TestAndSaveTeams(_teamsUrl, Me);
+            _teamsOk = true;
+            _teamsUrl = "";
+        }
+        catch (Exception err)
+        {
+            _teamsOk = false;
+            _teamsResult = Ui.Message(err);
+        }
+        finally
+        {
+            _teamsBusy = false;
+            _teams = Service.GetTeamsStatus();
+        }
+    }
+
+    private void ToggleTeams(ChangeEventArgs e) => TeamsAction(() => Service.SetTeamsOn(e.Value is true, Me));
+
+    private void ResetTeams() => TeamsAction(() => Service.ResetTeamsUrl(Me));
+
+    private void TeamsAction(Action action)
+    {
+        _teamsResult = null;
+        try
+        {
+            action();
+        }
+        catch (Exception err)
+        {
+            _teamsOk = false;
+            _teamsResult = Ui.Message(err);
+        }
+        _teams = Service.GetTeamsStatus();
+    }
+
     private bool HasSavedKey => _status.Provider == _provider && _status.KeyHint is not null;
 
     private string ModelChoice
@@ -330,6 +430,7 @@
     {
         _config = Service.Config();
         _showModel = Service.ShowModelName;
+        _teams = Service.GetTeamsStatus();
         LoadLlm();
         if (_status.Provider is { } p) _provider = p;
         _model = _status.Model is { } m && m != "Copilot default" ? m : "";

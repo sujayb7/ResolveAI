@@ -51,6 +51,7 @@ builder.Services.AddSingleton(sp =>
     var service = new AppService(deps.Db, deps.Providers, deps.Systems, deps.Settings, notifier, store);
     // A model saved on the Settings page passed a connection test, so it wins over .env.
     service.RestoreSavedLlm();
+    service.RestoreSavedTeams();
     return service;
 });
 builder.Services.AddScoped<AccessCodeStore>();
