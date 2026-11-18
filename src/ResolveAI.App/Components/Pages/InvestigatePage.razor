@@ -61,7 +61,7 @@
                 <span>Use live @LiveProviderLabel (@_config.LiveModel) · @Math.Max(0, _config.LiveDailyLimit - _config.LiveRunsToday) of @_config.LiveDailyLimit left today</span>
             </label>
         }
-        @if (_error is not null) { <ErrorBox Message="@_error" /> }
+        @if (!string.IsNullOrEmpty(_error)) { <ErrorBox Message="@_error" /> }
         <div class="flex justify-end gap-2">
             <a href="/incidents" class="btn-secondary rounded-md px-4 py-2 text-sm font-medium">Cancel</a>
             <Btn Type="submit" Variant="primary" Disabled="@_submitting">

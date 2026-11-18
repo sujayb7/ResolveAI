@@ -9,7 +9,8 @@ analyses an evidence packet; every claim must cite packet IDs, a deterministic v
 - Run: `dotnet run --project src/ResolveAI.App` (port 8787). Recorded mode works offline with no key.
 - Live model: set it on **Settings** (click the "LLM:" badge in the header). The page saves only after a passing connection test.
   Fallback is `.env` (copy `.env.example`).
-- Live fault for demos: `pwsh demo-systems/live-demo.ps1 -Setup`, restart the app, then `-Inject pinpoint-locale` or `-Inject auth-keys`.
+- Live fault for demos: `python3 demo-systems/live-demo.py setup`, restart the app, then `inject <scenario>` (`list` shows six; scenarios are JSON in `demo-systems/scenarios/`). `live-demo.ps1` still has the original two.
+- Full guide with diagrams and screenshots: `docs/ResolveAI-Guide.md`.
 - `TreatWarningsAsErrors` is on: any compiler warning fails the build.
 
 ## Where things are

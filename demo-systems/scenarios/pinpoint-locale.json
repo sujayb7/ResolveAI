@@ -1,0 +1,37 @@
+{
+  "id": "pinpoint-locale",
+  "summary": "A new download index only has Japanese files, so every other language falls back to English.",
+  "service": "pinpoint",
+  "key_metrics": ["Locale fallback downloads", "Asset download requests"],
+  "deploy": {
+    "minutes_ago": 18, "version": "v7.3.0", "commit": "4be91c2", "author": "dev-content",
+    "change_summary": "Topic asset downloads now resolve the file variant from the published_variants index (ja-JP backfilled; other locales pending backfill)",
+    "files_changed": [{ "path": "src/Assets/DownloadHandler.cs", "added": 22, "removed": 9 }, { "path": "jobs/backfill-published-variants.sql", "added": 31, "removed": 0 }],
+    "patch": "--- a/src/Assets/DownloadHandler.cs\n+++ b/src/Assets/DownloadHandler.cs\n-  var file = assetStore.FindVariant(assetId, request.Locale) ?? assetStore.Default(assetId);\n+  var file = publishedVariants.Find(assetId, request.Locale) ?? assetStore.Default(assetId); // falls back to en-US\n"
+  },
+  "logs": [
+    [25, "INFO", "pinpoint asset download asset_id=8812 requested_locale=de-DE served_variant=de-DE"],
+    [19, "INFO", "deploy-agent pinpoint v7.3.0 rollout started (3/3 pods)"],
+    [17, "INFO", "pinpoint backfill-published-variants: 1,204 ja-JP variants indexed; de-DE, fr-FR, es-ES, zh-CN queued"],
+    [15, "INFO", "pinpoint asset download asset_id=8812 requested_locale=ja-JP served_variant=ja-JP"],
+    [14, "WARN", "pinpoint variant missing from published_variants; falling back to en-US asset_id=8812 requested_locale=de-DE"],
+    [12, "WARN", "pinpoint variant missing from published_variants; falling back to en-US asset_id=9034 requested_locale=fr-FR"],
+    [9, "WARN", "pinpoint variant missing from published_variants; falling back to en-US asset_id=8812 requested_locale=es-ES"],
+    [7, "INFO", "pinpoint asset download asset_id=9034 requested_locale=ja-JP served_variant=ja-JP"],
+    [5, "WARN", "pinpoint variant missing from published_variants; falling back to en-US asset_id=9120 requested_locale=zh-CN"],
+    [2, "WARN", "pinpoint variant missing from published_variants; falling back to en-US asset_id=8812 requested_locale=de-DE"]
+  ],
+  "metrics": {
+    "Locale fallback downloads": ["per min", 0, 37, 16],
+    "Asset download requests": ["per min", 120, 124, 16]
+  },
+  "form": {
+    "title": "Topic asset downloads return English files for non-Japanese participants",
+    "application": "pinpoint",
+    "environment": "production",
+    "severity": "SEV-3",
+    "impact": "Participants in every language except Japanese download English Development Guide assets.",
+    "details": "In Participant view all asset and topic translations are visible, but selecting an asset downloads the English file.\nJapanese participants get the correct Japanese file. The translated titles and descriptions display correctly.\nReported by the content team this afternoon; no content was changed in the admin tool."
+  },
+  "expected_cause": "v7.3.0 reads downloads from published_variants, which so far only has ja-JP rows."
+}

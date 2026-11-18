@@ -1,0 +1,35 @@
+{
+  "id": "auth-keys",
+  "summary": "A signing-key rotation stopped publishing the old key, so validators reject new tokens.",
+  "service": "auth-api",
+  "key_metrics": ["HTTP 401 rate", "Token validations"],
+  "deploy": {
+    "minutes_ago": 14, "version": "v3.9.2", "commit": "d1a77e0", "author": "dev-identity",
+    "change_summary": "Rotate JWT signing key to kid 2026-11 and drop the previous key from the signer",
+    "files_changed": [{ "path": "config/signing-keys.yaml", "added": 3, "removed": 6 }],
+    "patch": "--- a/config/signing-keys.yaml\n+++ b/config/signing-keys.yaml\n-active_kid: 2026-10\n+active_kid: 2026-11\n-jwks_publish_previous: true\n+jwks_publish_previous: false\n"
+  },
+  "logs": [
+    [20, "INFO", "auth-api jwks cache refreshed; keys=[2026-10] next_refresh_in=6h"],
+    [15, "INFO", "deploy-agent auth-api v3.9.2 rollout started (4/4 pods)"],
+    [13, "INFO", "auth-api signer active_kid=2026-11"],
+    [12, "ERROR", "auth-api token validation failed: kid 2026-11 not found in JWKS cache; status=401 route=/api/orders"],
+    [10, "ERROR", "auth-api token validation failed: kid 2026-11 not found in JWKS cache; status=401 route=/api/profile"],
+    [8, "WARN", "auth-api 401 rate above 20% for 5m on gateway-east"],
+    [4, "ERROR", "auth-api token validation failed: kid 2026-11 not found in JWKS cache; status=401 route=/api/checkout"],
+    [1, "ERROR", "auth-api token validation failed: kid 2026-11 not found in JWKS cache; status=401 route=/api/orders"]
+  ],
+  "metrics": {
+    "HTTP 401 rate": ["%", 0.4, 31, 12],
+    "Token validations": ["per min", 5400, 5350, 12]
+  },
+  "form": {
+    "title": "Signed-in users suddenly getting logged out",
+    "application": "auth-api",
+    "environment": "production",
+    "severity": "SEV-2",
+    "impact": "About a third of signed-in requests fail with 401; users are sent back to the login page.",
+    "details": "Shortly after the afternoon release window users started being bounced to the login page.\nLogging in again works for a few seconds and then fails again. Both web and mobile are affected.\nNo infrastructure alerts apart from the gateway 401 rate."
+  },
+  "expected_cause": "v3.9.2 signs with kid 2026-11 but the JWKS cache (6h refresh) only knows 2026-10, and the old key is no longer published."
+}

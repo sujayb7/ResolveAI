@@ -1,0 +1,31 @@
+{
+  "id": "email-rate-limit",
+  "summary": "A marketing campaign used up the email provider quota, so password-reset emails are rate limited (429). No deploy.",
+  "service": "email-dispatcher",
+  "key_metrics": ["Email queue depth", "Provider 429 responses"],
+  "deploy": null,
+  "logs": [
+    [50, "INFO", "email-dispatcher sent 1,850 messages in last 5m provider=mailrelay status=202"],
+    [33, "INFO", "email-dispatcher campaign spring-sale enqueued 240,000 messages priority=bulk"],
+    [29, "WARN", "email-dispatcher provider mailrelay returned 429 Too Many Requests; retry-after=120s quota_remaining=0"],
+    [26, "WARN", "email-dispatcher transactional message delayed type=password_reset age=180s queue=shared"],
+    [21, "ERROR", "email-dispatcher provider mailrelay returned 429 Too Many Requests; retry-after=300s quota_remaining=0"],
+    [17, "WARN", "email-dispatcher queue depth 61200 (bulk=60950 transactional=250); single shared queue"],
+    [12, "ERROR", "email-dispatcher transactional message expired type=password_reset age=900s user_id=u-88123"],
+    [8, "ERROR", "email-dispatcher provider mailrelay returned 429 Too Many Requests; retry-after=300s quota_remaining=0"],
+    [4, "WARN", "email-dispatcher transactional message delayed type=order_confirmation age=1220s queue=shared"]
+  ],
+  "metrics": {
+    "Email queue depth": ["count", 120, 61200, 30],
+    "Provider 429 responses": ["per min", 0, 85, 29]
+  },
+  "form": {
+    "title": "Customers not receiving password reset emails",
+    "application": "email-dispatcher",
+    "environment": "production",
+    "severity": "SEV-2",
+    "impact": "Password reset and order confirmation emails are delayed by 15+ minutes or never arrive.",
+    "details": "Support has a spike in tickets about missing password reset emails over the last half hour.\nNo code was deployed. Marketing launched the spring sale campaign this afternoon."
+  },
+  "expected_cause": "The bulk campaign exhausted the mailrelay quota (429s); bulk and transactional mail share one queue, so resets wait behind it."
+}

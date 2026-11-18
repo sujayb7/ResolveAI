@@ -1,0 +1,42 @@
+{
+  "id": "inventory-cache-ttl",
+  "summary": "A config release cut the Redis cache TTL from 300 s to 5 s; cache misses flood the database and product pages slow down.",
+  "service": "inventory-api",
+  "key_metrics": ["Cache hit rate", "DB CPU", "Stock lookup p95"],
+  "deploy": {
+    "minutes_ago": 22, "version": "v4.12.0", "commit": "9c2e5aa", "author": "dev-catalog",
+    "change_summary": "Move cache settings to cache.yaml and make TTL configurable per region",
+    "files_changed": [{ "path": "config/cache.yaml", "added": 6, "removed": 0 }, { "path": "src/cache/stockCache.ts", "added": 14, "removed": 7 }],
+    "patch": "--- a/src/cache/stockCache.ts\n+++ b/src/cache/stockCache.ts\n-  ttlSeconds: 300,\n+  ttlSeconds: cacheConfig.ttl,\n--- /dev/null\n+++ b/config/cache.yaml\n+stock:\n+  ttl: 5   # TODO confirm unit with platform team\n"
+  },
+  "files": {
+    "cache.yaml": "# Loaded by inventory-api at startup (v4.12.0).\nstock:\n  ttl: 5          # seconds; was hard-coded 300 before v4.12.0\n  maxEntries: 200000\n"
+  },
+  "logs": [
+    [30, "INFO", "inventory-api cache stats hit_rate=96.4% evictions_per_min=40 keys=182311"],
+    [23, "INFO", "deploy-agent inventory-api v4.12.0 rollout started (6/6 pods)"],
+    [21, "INFO", "inventory-api cache config loaded from cache.yaml: stock.ttl=5 stock.maxEntries=200000"],
+    [18, "INFO", "inventory-api cache stats hit_rate=41.0% evictions_per_min=36100 keys=24410"],
+    [16, "WARN", "inventory-api slow query 1840ms: SELECT sku, qty FROM stock_levels WHERE sku = ANY($1) (rows=50)"],
+    [14, "WARN", "inventory-api db pool busy in_use=48 max=50 waiting=31"],
+    [12, "ERROR", "inventory-api stock lookup timed out after 3000ms; request_id=inv-55102 route=/v1/stock"],
+    [10, "WARN", "inventory-api cache stats hit_rate=12.7% evictions_per_min=52800 keys=9120"],
+    [7, "ERROR", "inventory-api stock lookup timed out after 3000ms; request_id=inv-55988 route=/v1/stock"],
+    [5, "WARN", "inventory-api slow query 2210ms: SELECT sku, qty FROM stock_levels WHERE sku = ANY($1) (rows=50)"],
+    [2, "ERROR", "inventory-api stock lookup timed out after 3000ms; request_id=inv-56340 route=/v1/stock"]
+  ],
+  "metrics": {
+    "Cache hit rate": ["%", 96, 12, 20],
+    "DB CPU": ["%", 31, 94, 19],
+    "Stock lookup p95": ["ms", 45, 2900, 18]
+  },
+  "form": {
+    "title": "Product pages slow and stock showing as unavailable",
+    "application": "inventory-api",
+    "environment": "production",
+    "severity": "SEV-2",
+    "impact": "Product pages take 3+ seconds; about 1 in 5 show \"stock unavailable\" and can't be added to the cart.",
+    "details": "Support reports product pages loading slowly across all regions since early afternoon.\nSome items show \"stock unavailable\" even though the warehouse has them.\nThe catalog team shipped a release around the same time; no database changes were planned."
+  },
+  "expected_cause": "v4.12.0 set stock.ttl=5 (seconds) instead of 300, so the cache hit rate collapsed and the database is overloaded."
+}

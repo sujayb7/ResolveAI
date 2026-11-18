@@ -1,0 +1,37 @@
+{
+  "id": "search-analyzer",
+  "summary": "A reindex job used a new mapping without the accent-folding analyzer, so searches with accents return nothing.",
+  "service": "catalog-search",
+  "key_metrics": ["Zero-result searches", "Search requests"],
+  "deploy": {
+    "minutes_ago": 35, "version": "v2.4.0", "commit": "e07b13d", "author": "dev-search",
+    "change_summary": "Reindex products into catalog-v9 with the new synonym list; switch alias catalog -> catalog-v9",
+    "files_changed": [{ "path": "index/mappings/catalog-v9.json", "added": 120, "removed": 0 }, { "path": "jobs/reindex.py", "added": 8, "removed": 3 }],
+    "patch": "--- a/index/mappings/catalog-v8.json\n+++ b/index/mappings/catalog-v9.json\n-      \"analyzer\": \"folding_en\",\n+      \"analyzer\": \"standard\",\n"
+  },
+  "logs": [
+    [40, "INFO", "catalog-search query q=\"creme brulee\" hits=38 took=21ms"],
+    [36, "INFO", "deploy-agent catalog-search v2.4.0 reindex job started target=catalog-v9"],
+    [30, "INFO", "catalog-search reindex complete catalog-v9 docs=184220; alias catalog -> catalog-v9"],
+    [27, "WARN", "catalog-search query q=\"crème brûlée\" hits=0 took=9ms index=catalog-v9"],
+    [24, "INFO", "catalog-search query q=\"creme brulee\" hits=0 took=8ms index=catalog-v9"],
+    [20, "WARN", "catalog-search query q=\"café\" hits=0 took=7ms index=catalog-v9"],
+    [16, "INFO", "catalog-search query q=\"coffee\" hits=412 took=19ms index=catalog-v9"],
+    [12, "WARN", "catalog-search zero-result rate 23% over 10m (baseline 4%)"],
+    [8, "WARN", "catalog-search query q=\"jalapeño\" hits=0 took=8ms index=catalog-v9"],
+    [3, "WARN", "catalog-search query q=\"crème\" hits=0 took=7ms index=catalog-v9"]
+  ],
+  "metrics": {
+    "Zero-result searches": ["%", 4, 23, 28],
+    "Search requests": ["per min", 3100, 3150, 28]
+  },
+  "form": {
+    "title": "Search returns no results for some products",
+    "application": "catalog-search",
+    "environment": "production",
+    "severity": "SEV-3",
+    "impact": "About a quarter of searches return nothing, mostly French and Spanish product names.",
+    "details": "Customers report that searching for items like \"crème brûlée\" or \"café\" shows no results, even though the products exist.\nPlain English searches still work. The search team ran a planned reindex earlier today."
+  },
+  "expected_cause": "catalog-v9 mapping uses the standard analyzer instead of folding_en, so accented and unaccented words no longer match."
+}

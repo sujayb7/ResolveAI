@@ -2,6 +2,10 @@
 
 ResolveAI pulls an incident's logs, deployments, metrics, runbooks and past incidents into one workflow. It then produces **evidence-backed root-cause hypotheses**, finds **similar past incidents**, suggests **safe, read-only checks** and drafts an **RCA for human review**.
 
+![ResolveAI incident findings](docs/images/03-incident-ai-findings.png)
+
+**New here? Read the [complete guide](docs/ResolveAI-Guide.md)**: features with screenshots, architecture and flow diagrams, a code map, the data model and the live demo.
+
 > **Demo dataset only.** Every incident, log, deployment and metric is synthetic seed data. No observability integrations are connected, and the UI says so on every page. AI output is always labelled as a draft or recommendation. Nothing is executed automatically.
 
 ## About this repository
@@ -34,7 +38,9 @@ Everything else is handled for you: NuGet packages restore automatically, SQLite
 | Software | Needed for |
 | --- | --- |
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | [Running in a container](#run-in-docker-local-deployment) instead of with `dotnet run` |
-| Anthropic API key | [Live Claude analysis](#llm-modes); without one, the app replays recorded results for free |
+| GitHub token with Copilot access, or an Anthropic API key | [Live AI analysis](#llm-modes); without one, the app replays recorded results for free. Set it on the **Settings** page |
+| Python 3.8+ | The [live demo scenarios](#live-demo-data) (`demo-systems/live-demo.py`) |
+| A Microsoft Teams channel webhook | [Teams notifications](#microsoft-teams-notifications) when an investigation completes |
 | SQL Server and `sqlcmd` | [Live database checks](#systems-the-agent-can-check-mcp) for INC-1046 (off by default) |
 | Git at run time | Commit details in deploy checks, for services with a `repo` set in `mcp.config.json` |
 | PowerShell 7 and Chromium | [Browser tests](#tests) |
@@ -45,12 +51,12 @@ Everything else is handled for you: NuGet packages restore automatically, SQLite
 ### Run it
 
 ```bash
-git clone https://github.com/ratnkumarsingh/resolveai-agentic.git
-cd resolveai-agentic
+git clone https://github.com/sujayb7/ResolveAI.git
+cd ResolveAI
 dotnet run --project src/ResolveAI.App
 ```
 
-Open http://localhost:8787 and pick **INC-1042**. The first start creates and seeds the database at `data/resolveai.db`, so you don't need to run any SQL script. Press Ctrl+C to stop the app; your data is kept.
+Open http://localhost:8787 (in GitHub Codespaces, open the forwarded port 8787) and pick **INC-1042** from **Incidents**. The first start creates and seeds the database at `data/resolveai.db`, so you don't need to run any SQL script. Press Ctrl+C to stop the app; your data is kept.
 
 The UI runs on the server (Blazor Server on ASP.NET Core), so there is nothing separate to start.
 
@@ -74,7 +80,31 @@ $env:DB_PATH = 'data/resolveai-test.db'; dotnet run --project src/ResolveAI.App
 ### Common problems
 
 - **Port 8787 is already in use:** set a different port for this run with `$env:API_PORT = '8788'` in PowerShell (`API_PORT=8788` in bash), or set `API_PORT` in `.env`.
+- **The app runs live even though `LLM_MODE=recorded` is set in the shell:** `dotnet run` applies `src/ResolveAI.App/Properties/launchSettings.json`, which sets `LLM_MODE=live`. Use `dotnet run --no-launch-profile --project src/ResolveAI.App`, or switch to recorded mode on **Settings**.
+- **"Model … is not available" when testing the key:** your Copilot plan doesn't include that model. Pick one from the model list on **Settings**; the list only shows models your key can use.
 - **A system shows *Not working* on the Systems page:** the message on its card gives the reason. The rest of the app keeps working. SQL Server shows *Turned off* until you enable it in `mcp.config.json`.
+
+## Live demo data
+
+Six ready-made incident stories live in `demo-systems/scenarios/`. `demo-systems/live-demo.py` writes fresh, time-stamped logs, a deploy and metrics for one of them, so you can create the incident in the UI and watch ResolveAI investigate evidence that didn't exist a minute earlier. No packages needed; works in Codespaces, Linux, macOS and Windows.
+
+```bash
+python3 demo-systems/live-demo.py setup                       # once; then restart the app
+python3 demo-systems/live-demo.py list                        # the scenarios
+python3 demo-systems/live-demo.py inject inventory-cache-ttl  # prints what to type into "Investigate incident"
+python3 demo-systems/live-demo.py reset                       # clean up afterwards; restart the app
+```
+
+| Scenario | Service | What broke |
+| --- | --- | --- |
+| `inventory-cache-ttl` | inventory-api | Cache TTL cut to 5 s by a release; DB overloaded |
+| `partner-cert-expired` | partner-gateway | Expired mTLS certificate, **no deploy** |
+| `search-analyzer` | catalog-search | Reindex lost accent folding; accented searches return nothing |
+| `email-rate-limit` | email-dispatcher | Campaign used the mail quota (429), **no deploy** |
+| `auth-keys` | auth-api | Signing-key rotation dropped the old key |
+| `pinpoint-locale` | pinpoint | Download index only has Japanese files |
+
+Investigate within about 20 minutes of `inject`; the evidence is time-stamped relative to "now". Details and how to add a scenario: [guide, section 9](docs/ResolveAI-Guide.md#9-live-demo-data). On Windows without Python, `demo-systems/live-demo.ps1` runs the first two original scenarios.
 
 ## Run in Docker (local deployment)
 
@@ -145,12 +175,15 @@ Copy `.env.example` to `.env`. All variables are server-side; the UI runs on the
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `LLM_PROVIDER` | `auto` | `github`, `anthropic` or `auto` (GitHub token first, then Anthropic key). |
+| `GITHUB_COPILOT_TOKEN` | empty | GitHub token with Copilot access. In a Codespace set it explicitly; the automatic `GITHUB_TOKEN` can't call Copilot. |
+| `GITHUB_COPILOT_MODEL` | empty | Copilot model, e.g. `claude-sonnet-5.5`. Empty lets Copilot choose. Copilot names use dots, Anthropic's use dashes. |
 | `ANTHROPIC_API_KEY` | empty | Claude API key, or your gateway's key. Empty means recorded mode. |
 | `ANTHROPIC_BASE_URL` | empty | A gateway that speaks the Anthropic Messages API. Empty means Anthropic's own API. See [Using a gateway](#using-a-gateway). |
 | `LLM_MODE` | `recorded` | `live` calls Claude; `recorded` replays fixtures and rules offline. |
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Model for investigations and RCA drafts. |
 | `LIVE_ACCESS_CODE` | empty | With an API key, lets a run opt into live Claude while `LLM_MODE` stays `recorded`. The browser sends it from Settings → Access code. |
-| `LIVE_DAILY_LIMIT` | `20` | Maximum live model calls (investigations + RCA drafts) per UTC day; further live requests get HTTP 429. |
+| `LIVE_DAILY_LIMIT` | `100` (`.env.example`: `20`) | Maximum live model calls (investigations + RCA drafts) per UTC day; further live requests get HTTP 429. |
 | `DEMO_MODE` | `true` | Enables `POST /api/demo/reset` (from localhost, or with the access code). |
 | `DB_PATH` | `data/resolveai.db` | SQLite file, relative to the repository root. |
 | `HOST` | `127.0.0.1` | Listen address. Docker uses `0.0.0.0` inside the container. |
@@ -160,12 +193,26 @@ Copy `.env.example` to `.env`. All variables are server-side; the UI runs on the
 | `RESOLVEAI_MCP_CONFIG` | empty | Path to the MCP config; defaults to `mcp.config.json`, then the example. |
 | `MSSQL_USER` / `MSSQL_PASSWORD` | empty | SQL Server reader login for the `tedious` driver only. |
 | `DEMO_RESET_ANY_IP` | `false` | Allow demo reset from any address. Set in Docker only; see above. |
+| `TEAMS_WEBHOOK_URL` | empty | Default Microsoft Teams channel webhook. It is a secret: keep it in `.env`, never in committed files. |
+
+The model, key and Teams webhook can also be set on the **Settings** page. Values saved there are tested first, stored encrypted on the server, and win over `.env`.
 
 ### LLM modes
 
+**The easy way: Settings → AI model and key.** Choose GitHub Copilot or Anthropic Claude, paste the token or key, pick a model from the list your key can use, and press **Test connection and save**. Nothing is saved unless the test call passes, and a failed test leaves a working model running. The page also shows token usage per key and an option to show the model name on AI results (off by default).
+
 - **recorded** (default): deterministic and runs without network access. INC-1042 replays a recorded analysis; other incidents get a rule-based analysis built from the same evidence packet. Both go through the same server-side validation as live output. Use this mode for a demo that must behave the same way every time.
 - **live on request** (recommended for shared demos): keep `LLM_MODE=recorded`, set `ANTHROPIC_API_KEY` and `LIVE_ACCESS_CODE`. Everyone gets recorded mode; a person with the code can tick *Use live Claude* on an incident. An RCA is drafted in the same mode as its investigation. Live calls are capped by `LIVE_DAILY_LIMIT`.
-- **live**: the server calls Claude through the official `Anthropic` .NET SDK with structured JSON output (`output_config.format`, effort `medium`) and server-side refusal fallback (`fallbacks: "default"`). The response is then validated against the evidence packet.
+- **live with GitHub Copilot**: the server calls the model through the official GitHub Copilot SDK. There are no follow-up tool calls, and token counts are estimated.
+- **live with Claude**: the server calls Claude through the official `Anthropic` .NET SDK with structured JSON output (`output_config.format`, effort `medium`) and server-side refusal fallback (`fallbacks: "default"`). The response is then validated against the evidence packet.
+
+### Microsoft Teams notifications
+
+When a webhook is set, every completed investigation posts an Adaptive Card to a Teams channel: incident, service, severity, model, top finding and summary. To set it up:
+
+1. In the Teams channel, open **Workflows**, choose *Post to a channel when a webhook request is received*, and copy the URL.
+2. Put it in `.env` as `TEAMS_WEBHOOK_URL`, or paste it on **Settings → Microsoft Teams**.
+3. Press **Send test message** and check the channel. Use the switch to turn posts off without losing the URL.
 
 ### Using a gateway
 
@@ -185,15 +232,15 @@ LLM_MODE=live
 
 ## Demo script (3–4 minutes)
 
-1. The **incident queue** shows active incidents. Open **INC-1042**.
+1. **Incidents** shows the queue. Open **INC-1042**. (For a fresh incident instead, see [Live demo data](#live-demo-data).)
 2. On **Signals & timeline**, point out that HTTP 500s rose from 0.2% to 28% and the DB pool rose from 6 to 20. **Deployments** shows payment-api v2.8.1 rolling out four minutes before the incident started.
 3. Click **Run investigation**. The loading state shows each backend stage.
 4. On **AI findings**, the *Observed facts* (computed from records) are kept apart from the *Inferred analysis* (model output). Click an evidence chip such as `pool.max=20` to jump to the source log line.
 5. **Similar incidents** shows INC-0881, a pool-size regression after a config change. Open its historical RCA.
 6. **Recommended checks** list what an engineer should verify and what signal to expect. No action is executed.
 7. Open **How this was produced** under the findings: every pipeline stage with its timing and counts (records gathered, redactions, citations removed, unverified numbers).
-8. Record a verified root cause, then go to **RCA**: **Generate RCA draft**, edit a field, **Save & mark reviewed**, then **Copy Markdown** or **Download .md**.
-9. Back on the queue, **Needs review** lists incidents whose AI findings no one has confirmed yet; INC-1042 now shows **Verified**.
+8. Record a verified root cause, then go to **RCA**: **Generate RCA draft**, edit a field, **Save & mark reviewed**, then **Copy Markdown** or **Download PDF**.
+9. Back on the queue, **Needs review** lists incidents whose AI findings no one has confirmed yet; INC-1042 now counts as **Reviewed**.
 10. **Settings → Reset demo data** returns everything to a known state for the next run.
 
 Other seeded cases:
@@ -202,6 +249,8 @@ Other seeded cases:
 
 ## How it works
 
+The [complete guide](docs/ResolveAI-Guide.md) has architecture, sequence and lifecycle diagrams. In short:
+
 ```
 Blazor Server UI ──┐
                    ├──▶  AppService  ──▶  SQLite (Microsoft.Data.Sqlite, FTS5)
@@ -209,7 +258,8 @@ HTTP API (/api) ───┘         │
                              ├─ EvidenceLoader   deterministic gathering (time window, same-service deploys)
                              ├─ Similar          FTS5 bm25 search over past incidents (no model choice)
                              ├─ Packet           sanitise → dedupe → bound (≤40 log groups, ≤40k chars), typed IDs
-                             ├─ Llm/             Claude (live) or recorded provider
+                             ├─ Llm/             GitHub Copilot or Claude (live), or the recorded provider
+                             ├─ TeamsNotifier    posts a card to Teams when a run completes
                              ├─ Mcp/             hub that starts and calls the read-only MCP servers
                              └─ Validate         drop unknown citations, unsafe checks, clip sizes, score + rank
 ```
