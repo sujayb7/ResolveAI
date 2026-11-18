@@ -31,7 +31,12 @@ else if (_detail is not null)
                         <span class="text-xs text-slate-500">@incident.Environment</span>
                     </div>
                     <h1 class="@Ui.Cx("mt-1.5 font-semibold", Collapsed ? "text-lg" : "text-2xl")">@incident.Title</h1>
-                    <p class="mt-1 text-sm text-slate-600" data-testid="incident-description">@incident.Description</p>
+                    @* Keeps the line breaks of a description pasted from a ticket. Once a run is shown, a long one is cut to two lines. *@
+                    <p class="@Ui.Cx("mt-1 whitespace-pre-line text-sm text-slate-600", Collapsed ? "line-clamp-2" : "")" data-testid="incident-description">@incident.Description.Trim()</p>
+                    @if (Collapsed && (incident.Description.Length > 220 || incident.Description.Trim().Contains('\n')))
+                    {
+                        <button type="button" class="link mt-0.5 text-xs font-medium" @onclick="() => _detailsOpen = true" data-testid="show-full-description">Show full description</button>
+                    }
                     <div class="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-900"><strong>Impact:</strong> @incident.ImpactSummary</div>
                     @if (!Collapsed)
                     {

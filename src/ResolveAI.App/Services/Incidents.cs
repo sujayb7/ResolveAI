@@ -35,12 +35,26 @@ public static class Incidents
             where.Add("(key LIKE @like OR title LIKE @like OR service_name LIKE @like)");
             args.Add("like", $"%{f.Q}%");
         }
-        if (f.Review == "active")
+        // The queue has three buckets that never overlap: an incident is "reviewed" when it is closed (status resolved, shown as
+        // "Reviewed") or a person verified its cause and RCA; everything else is "active"; "pending" is the active part with AI
+        // findings nobody has reviewed. So Active + Reviewed = all incidents, and Needs review never shows a reviewed incident.
+        switch (f.Review)
         {
-            where.Add("status <> 'resolved'");
-            where.Add("NOT EXISTS (SELECT 1 FROM feedback f JOIN investigations v ON v.id = f.investigation_id WHERE v.incident_id = incidents.id AND f.verified_root_cause IS NOT NULL AND (SELECT r.status FROM rca_drafts r WHERE r.incident_id = incidents.id ORDER BY r.version DESC LIMIT 1) = 'reviewed')");
+            case "active":
+                where.Add("status <> 'resolved'");
+                where.Add($"({ReviewState}) <> 'verified'");
+                break;
+            case "pending":
+                where.Add("status <> 'resolved'");
+                where.Add($"({ReviewState}) = 'pending'");
+                break;
+            case "verified":
+                where.Add($"(status = 'resolved' OR ({ReviewState}) = 'verified')");
+                break;
+            case "none":
+                where.Add($"({ReviewState}) = 'none'");
+                break;
         }
-        else if (f.Review is not null) { where.Add($"({ReviewState}) = @review"); args.Add("review", f.Review); }
         var clause = where.Count > 0 ? $"WHERE {string.Join(" AND ", where)}" : "";
         var total = db.Get<int>($"SELECT COUNT(*) FROM incidents {clause}", args);
         args.Add("limit", f.PageSize);

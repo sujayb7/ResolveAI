@@ -31,12 +31,29 @@ else if (Inv.Status == "failed")
 else
 {
     <div class="space-y-4" data-testid="investigation-results">
-        @if (Inv.InsufficientEvidence || Inv.Hypotheses.Count == 0)
+        @if (Insufficient)
         {
             <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900" data-testid="insufficient-evidence">
                 <strong>There is not enough information to identify the cause yet.</strong>
                 We could not find enough reliable details in the available records to explain what happened.
                 Add more incident details, logs, measurements, or recent changes, then start the investigation again.
+                @if (Inv.Limitations.Count > 0)
+                {
+                    <div class="mt-3 font-medium">What is missing</div>
+                    <ul class="mt-1 list-disc space-y-0.5 pl-5" data-testid="missing-information">
+                        @foreach (var l in Inv.Limitations.Take(5))
+                        {
+                            <li>@l</li>
+                        }
+                    </ul>
+                }
+                @if (Inv.Hypotheses.Count > 0)
+                {
+                    <button type="button" class="link mt-3 block text-xs font-medium" @onclick="() => _showGuesses = !_showGuesses"
+                            aria-expanded="@Ui.Aria(_showGuesses)" data-testid="toggle-guesses">
+                        @(_showGuesses ? "Hide the AI's unsupported guesses" : $"Show the AI's unsupported guesses anyway ({Inv.Hypotheses.Count})")
+                    </button>
+                }
             </div>
         }
         else
@@ -49,6 +66,9 @@ else
             <ObservedFacts Evidence="Evidence" />
         }
 
+        @* With too little evidence, the summary and hypotheses are guesses: they stay hidden unless asked for, so nobody acts on them. *@
+        @if (!Insufficient || _showGuesses)
+        {
         <section class="rounded-lg border border-slate-200 bg-surface p-4">
             <div class="mb-2 flex flex-wrap items-center gap-2">
                 <SectionTile Kind="analysis" />
@@ -71,11 +91,12 @@ else
                 <HypothesisCard @key="h.Id" H="h" InvestigationId="@Inv.Id" OnEvidence="OnEvidence" OnChanged="OnChanged" />
             }
         </div>
+        }
 
-        @if (Inv.Limitations.Count > 0 || Inv.ValidationIssues.Count > 0)
+        @if ((!Insufficient && Inv.Limitations.Count > 0) || Inv.ValidationIssues.Count > 0)
         {
             <div class="grid gap-4 md:grid-cols-2">
-                @if (Inv.Limitations.Count > 0)
+                @if (!Insufficient && Inv.Limitations.Count > 0)
                 {
                     <Card Title="Limitations" Icon="limits">
                         <ul class="list-disc space-y-1 pl-5 text-sm text-slate-700">
@@ -115,6 +136,17 @@ else
     [Parameter] public EventCallback OnRun { get; set; }
     [Parameter] public EventCallback OnOpenRca { get; set; }
     [Parameter] public EventCallback OnChanged { get; set; }
+
+    private bool _showGuesses;
+    private string? _shownFor;
+
+    private bool Insufficient => Inv is not null && (Inv.InsufficientEvidence || Inv.Hypotheses.Count == 0);
+
+    protected override void OnParametersSet()
+    {
+        // Each run starts with its guesses hidden again.
+        if (Inv?.Id != _shownFor) { _shownFor = Inv?.Id; _showGuesses = false; }
+    }
 
     private bool HasUsefulObservations => Evidence is not null
         && (Evidence.Logs.Count > 0

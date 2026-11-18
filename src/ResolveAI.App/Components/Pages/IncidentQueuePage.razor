@@ -57,13 +57,12 @@
                     <option value="@s">@s</option>
                 }
             </select>
-            <select aria-label="Status" @bind="_status" @bind:after="Load" class="@SelectClass">
+            <select aria-label="Status" @bind="_status" @bind:after="StatusChanged" class="@SelectClass">
                 <option value="">All statuses</option>
-                @foreach (var s in new[] { "open", "investigating", "mitigated", "reviewed" })
+                @foreach (var (value, label) in StatusOptions)
                 {
-                    <option value="@s">@s</option>
+                    <option value="@value">@label</option>
                 }
-                <option value="reviewed">Reviewed</option>
             </select>
             <select aria-label="Service" @bind="_service" @bind:after="Load" class="@SelectClass">
                 <option value="">All services</option>
@@ -86,7 +85,7 @@
     @if (_list is { Items.Count: 0 })
     {
         <Empty Title="@(_review == "pending" ? "Nothing waiting for review" : "No incidents match these filters")">
-            @(_review == "pending" ? "Every investigated incident has a reviewed root cause and RCA." : "Clear the search or filters, or reseed the demo data from Settings.")
+            @(_review == "pending" ? "Every investigated incident has a reviewed root cause and RCA." : "Clear the search or filters to see every incident.")
         </Empty>
     }
 
@@ -146,6 +145,9 @@
 
 @code {
     private const string SelectClass = "rounded-md border border-slate-300 bg-surface px-2 py-1.5 text-sm";
+    // "reviewed" is not a stored status: it selects the Reviewed bucket (closed, or cause and RCA reviewed by a person).
+    private static readonly (string Value, string Label)[] StatusOptions =
+        [("open", "Open"), ("investigating", "Investigating"), ("mitigated", "Mitigated"), ("reviewed", "Reviewed")];
 
     private string _q = "";
     private string _severity = "";
@@ -178,6 +180,14 @@
     private void SetReview(string state)
     {
         _review = _review == state ? null : state;
+        // Needs review and Reviewed exclude each other; keep the status filter from silently overriding the toggle.
+        if (_review is not null && _status == "reviewed") _status = "";
+        Load();
+    }
+
+    private void StatusChanged()
+    {
+        if (_status == "reviewed") _review = null;
         Load();
     }
 
@@ -214,9 +224,11 @@
     private void LoadOverview()
     {
         _config = Service.Config();
-        _stats = new(Count() - Count(status: "reviewed"), Count(severity: "SEV-1"), Count(review: "pending"), Count(review: "verified"));
+        // "reviewed" is not a stored status, so it can't be subtracted from the total; the active bucket is counted directly.
+        _stats = new(Count(review: "active"), Count(severity: "SEV-1"), Count(review: "pending"), Count(review: "verified"));
         // The list is already most urgent first, with reviewed incidents last.
-        _spotlight = Service.ListIncidents(null, null, null, null, "none", 1, 1).Items.FirstOrDefault(i => i.Status != "reviewed")
+        // The stored status is "resolved" (shown as "Reviewed"); a closed incident is never the one to start on.
+        _spotlight = Service.ListIncidents(null, null, null, null, "none", 1, 1).Items.FirstOrDefault(i => i.Status != "resolved")
             ?? Service.ListIncidents(null, null, null, null, "pending", 1, 1).Items.FirstOrDefault();
     }
 
@@ -271,7 +283,7 @@
         {
             var incidents = GetFilteredIncidents();
             _pendingBatchCount = incidents.Count;
-            _batchError = _pendingBatchCount == 0 ? "No incidents match the current filters." : null;
+            _batchError = _pendingBatchCount == 0 ? "No incidents to investigate: everything in this view is already reviewed or nothing matches the filters." : null;
             _confirmBatch = _pendingBatchCount > 0;
         }
         catch (Exception err)
@@ -291,7 +303,10 @@
             if (next.Items.Count == 0) break;
             all.AddRange(next.Items);
         }
-        return all;
+        // Re-investigating a closed or reviewed incident would push it back into Needs review (and spend live calls),
+        // so Investigate All skips them unless the Reviewed filter was chosen on purpose.
+        var reviewedChosen = _status == "reviewed" || _review == "verified";
+        return reviewedChosen ? all : all.Where(i => i.Status != "resolved" && i.ReviewState != "verified").ToList();
     }
 
     private void CancelInvestigateAll() => _confirmBatch = false;

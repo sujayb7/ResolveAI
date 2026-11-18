@@ -21,7 +21,14 @@
             </label>
             <label class="space-y-1 text-sm font-medium text-slate-700">
                 Application name <span class="font-normal text-slate-500">(optional)</span>
-                <input @bind="_application" maxlength="100" placeholder="Checkout" class="w-full rounded-md border border-slate-300 px-3 py-2 font-normal" />
+                <input @bind="_application" maxlength="100" placeholder="payment-api" list="known-services" class="w-full rounded-md border border-slate-300 px-3 py-2 font-normal" />
+                <datalist id="known-services">
+                    @foreach (var s in _services)
+                    {
+                        <option value="@s"></option>
+                    }
+                </datalist>
+                <span class="block text-xs font-normal text-slate-500">Pick a known service so logs, deploys and metrics can be matched.</span>
             </label>
             <label class="space-y-1 text-sm font-medium text-slate-700">
                 Environment
@@ -51,7 +58,7 @@
         {
             <label class="flex items-start gap-2 text-xs text-slate-600">
                 <input type="checkbox" @bind="_live" class="mt-0.5" />
-                <span>Use live Claude (@_config.LiveModel) · @Math.Max(0, _config.LiveDailyLimit - _config.LiveRunsToday) of @_config.LiveDailyLimit left today</span>
+                <span>Use live @LiveProviderLabel (@_config.LiveModel) · @Math.Max(0, _config.LiveDailyLimit - _config.LiveRunsToday) of @_config.LiveDailyLimit left today</span>
             </label>
         }
         @if (_error is not null) { <ErrorBox Message="@_error" /> }
@@ -70,9 +77,15 @@
     private AppConfig _config = new();
     private string _title = "", _application = "", _environment = "production", _impact = "", _description = "", _question = "", _severity = "SEV-2", _error = "";
     private bool _live, _submitting;
+    private List<string> _services = [];
     private bool LiveAllowed => _config.LiveAvailable;
+    private string LiveProviderLabel => _config.LiveModel?.StartsWith("claude", StringComparison.OrdinalIgnoreCase) == true ? "Claude" : "GitHub Models";
 
-    protected override void OnInitialized() => _config = Service.Config();
+    protected override void OnInitialized()
+    {
+        _config = Service.Config();
+        _services = Service.ListIncidents(null, null, null, null, null, 1, 1).Services;
+    }
 
     private void Submit()
     {
@@ -80,10 +93,15 @@
         _submitting = true;
         try
         {
-            var incident = Service.CreateIncident(_title, string.IsNullOrWhiteSpace(_application) ? "user-reported" : _application, _severity, _environment, _description, _impact);
-            var body = new StartInvestigationBody { Question = string.IsNullOrWhiteSpace(_question) ? null : _question.Trim(), Mode = LiveAllowed && _live ? "live" : null };
-            var (investigationId, _) = Service.StartInvestigation(incident.Id, body, new Caller(Codes.Current, IsLocal));
-            Nav.NavigateTo($"/incidents/{incident.Id}?investigation={investigationId}");
+            // One call creates the incident and starts the run; if the run can't start, the new incident is removed again.
+            var (incident, investigationId, _) = Service.CreateIncidentAndStart(new CreateIncidentBody
+            {
+                Title = _title, ApplicationName = _application, Severity = _severity, Environment = _environment,
+                Description = _description, ImpactSummary = _impact,
+                Question = string.IsNullOrWhiteSpace(_question) ? null : _question.Trim(),
+                Mode = LiveAllowed && _live ? "live" : null,
+            }, new Caller(Codes.Current, IsLocal));
+            Nav.NavigateTo($"/incidents/{incident.Key}?investigation={investigationId}");
         }
         catch (Exception err)
         {
