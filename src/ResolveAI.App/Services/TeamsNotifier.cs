@@ -25,7 +25,7 @@ public sealed class TeamsNotifier(HttpClient http, string? webhookUrl)
 
     private static string? Clean(string? url) => string.IsNullOrWhiteSpace(url) ? null : url.Trim();
 
-    /// <summary>Enough to recognise the webhook ("default9e19….powerplatform.com/…Ab12cd"), not enough to post to it.</summary>
+    /// <summary>Enough to recognise the webhook ("prod-12.westus…logic.azure.com/…Ab12cd"), not enough to post to it.</summary>
     public static string Hint(string url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return "••••";
