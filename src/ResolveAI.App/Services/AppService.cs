@@ -23,12 +23,32 @@ public sealed record Caller(string? AccessCode, bool IsLocal);
 /// Everything the app does. The HTTP routes and the Blazor components both call this, so the access code, the daily live
 /// limit, input limits and ownership checks can't be bypassed from either side.
 /// </summary>
-public sealed class AppService(Db db, Providers providers, Systems? systems, AppSettings settings)
+public sealed class AppService(Db db, Providers providers, Systems? systems, AppSettings settings, LlmSettingsStore? llmStore = null)
 {
     private static readonly HashSet<string> ReviewStates = ["none", "pending", "verified", "active"];
 
-    private ILlmProvider DefaultProvider => settings.LlmMode == "live" && providers.Live is not null ? providers.Live : providers.Recorded;
-    private bool LiveAvailable => providers.Live is not null && (settings.LlmMode == "live" || !string.IsNullOrEmpty(settings.LiveAccessCode));
+    /// <summary>
+    /// The live provider and default mode in use right now. Starts from .env; the Settings page replaces it after a
+    /// passing connection test, or drops to recorded after a failing one. Swapped as one object so readers never see half a change.
+    /// </summary>
+    private sealed record LlmState(ILlmProvider? Live, string Mode, LlmStatus Status);
+
+    private volatile LlmState? _llmState;
+
+    // Built on first use rather than in a field initializer, so the constructor parameters are only captured, never copied.
+    private LlmState Llm => _llmState ??= new LlmState(providers.Live, settings.LlmMode, EnvStatus());
+
+    private LlmStatus EnvStatus() => (LlmKeys.FromEnvironment(settings), providers.Live) switch
+    {
+        ({ } env, { } live) => new LlmStatus(settings.LlmMode, env.Provider, live.Model, LlmKeys.Hint(env.Key), ".env", null, null),
+        (null, { } live) => new LlmStatus(settings.LlmMode, null, live.Model, null, "server", null, null),
+        _ => new LlmStatus("recorded", null, null, null, "none", null, null),
+    };
+
+    private ILlmProvider? Live => Llm.Live;
+    private string LlmMode => Llm.Mode;
+    private ILlmProvider DefaultProvider => LlmMode == "live" && Live is not null ? Live : providers.Recorded;
+    private bool LiveAvailable => Live is not null && (LlmMode == "live" || !string.IsNullOrEmpty(settings.LiveAccessCode));
 
     private static byte[] Digest(string s) => SHA256.HashData(Encoding.UTF8.GetBytes(s));
 
@@ -43,8 +63,8 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
     private ILlmProvider ProviderFor(Caller caller, string mode)
     {
         if (mode == "recorded") return providers.Recorded;
-        if (providers.Live is null) throw new AppError(400, "Live mode is not configured on this server (no API key).");
-        if (settings.LlmMode != "live")
+        if (Live is not { } live) throw new AppError(400, "Live mode is not configured on this server (no API key).");
+        if (LlmMode != "live")
         {
             if (string.IsNullOrEmpty(settings.LiveAccessCode)) throw new AppError(400, "Live mode is not enabled on this server (no access code configured).");
             if (!HasAccessCode(caller)) throw new AppError(403, "Live mode needs a valid access code. Enter it under Settings.");
@@ -53,7 +73,7 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         {
             throw new AppError(429, $"Today's live limit ({settings.LiveDailyLimit} model calls) is used up. Use recorded mode or try again tomorrow (UTC).");
         }
-        return providers.Live;
+        return live;
     }
 
     private Incident IncidentOr404(string idOrKey) => Incidents.Find(db, idOrKey) ?? throw new AppError(404, "Incident not found");
@@ -63,7 +83,7 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         LlmMode = DefaultProvider.Mode,
         Model = DefaultProvider.Mode == "live" ? DefaultProvider.Model ?? "configured live model" : "recorded fixtures",
         LiveAvailable = LiveAvailable,
-        LiveModel = providers.Live?.Model,
+        LiveModel = Live?.Model,
         LiveDailyLimit = settings.LiveDailyLimit,
         LiveRunsToday = Investigations.LiveRunsToday(db),
         DemoMode = settings.DemoMode,
@@ -247,6 +267,101 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
 
     public KnowledgeBody Knowledge(string id) =>
         db.Get<KnowledgeBody>("SELECT id, title, doc_type, service_name, body FROM knowledge_documents WHERE id = @id", new { id }) ?? throw new AppError(404, "Document not found");
+
+    // Settings → AI model and keys
+
+    private void RequireAdmin(Caller caller)
+    {
+        if (!caller.IsLocal && !HasAccessCode(caller))
+        {
+            throw new AppError(403, "Changing the AI model needs localhost or the access code (Settings → Access code).");
+        }
+    }
+
+    private ILlmProvider Metered(ILlmProvider provider, string name, string key) => new MeteredProvider(provider, db, LlmKeys.Identity(name, key));
+
+    public LlmStatus GetLlmStatus() => Llm.Status;
+
+    public List<LlmUsageRow> LlmUsage() => llmStore?.Usage() ?? [];
+
+    /// <summary>Called once at startup: a model saved on the Settings page (it passed a connection test) wins over .env.</summary>
+    public void RestoreSavedLlm()
+    {
+        if (llmStore is null) return;
+        var (saved, unreadable) = llmStore.Load();
+        if (unreadable)
+        {
+            var current = Llm;
+            _llmState = current with { Status = current.Status with { Warning = "The key saved on the Settings page can't be decrypted on this server any more. Enter it again." } };
+            return;
+        }
+        if (saved is null) return;
+        var live = Metered(LlmKeys.Build(saved.Provider, saved.Key, saved.Model, saved.BaseUrl), saved.Provider, saved.Key);
+        _llmState = new LlmState(live, "live", new LlmStatus("live", saved.Provider, live.Model, LlmKeys.Hint(saved.Key), "Settings page", saved.TestedAt, null));
+    }
+
+    /// <summary>An empty key field reuses the saved key, or the .env key, for the same provider.</summary>
+    private string? ReuseKey(string provider)
+    {
+        if (llmStore?.Load().Settings is { } saved && saved.Provider == provider) return saved.Key;
+        return LlmKeys.FromEnvironment(settings) is { } env && env.Provider == provider ? env.Key : null;
+    }
+
+    /// <summary>
+    /// Makes one tiny call with the given provider, model and key. If it answers, the settings are saved (key encrypted) and new
+    /// investigations use them at once. If not, nothing is saved and ResolveAI drops to recorded mode, so a demo never runs on a broken key.
+    /// </summary>
+    public async Task<LlmTestResult> TestAndSaveLlm(string provider, string? model, string? apiKey, string? baseUrl, Caller caller)
+    {
+        RequireAdmin(caller);
+        if (provider is not ("github" or "anthropic")) throw new AppError(400, "Choose GitHub Copilot or Anthropic Claude.");
+        var modelName = model?.Trim() ?? "";
+        if (modelName.Length > 100) throw new AppError(400, "Invalid request: model must be at most 100 characters.");
+        var gateway = provider == "anthropic" && !string.IsNullOrWhiteSpace(baseUrl) ? baseUrl.Trim() : null;
+        if (gateway is not null && !Uri.TryCreate(gateway, UriKind.Absolute, out _)) throw new AppError(400, "Invalid request: the base URL is not a valid URL.");
+        var key = apiKey?.Trim() ?? "";
+        if (key.Length == 0) key = ReuseKey(provider) ?? throw new AppError(400, "Enter an API key.");
+        if (key.Length > 500) throw new AppError(400, "Invalid request: the API key is too long.");
+
+        var candidate = LlmKeys.Build(provider, key, modelName, gateway);
+        if (candidate is not IConnectionTest test) throw new AppError(400, "This provider can't be tested.");
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        LlmResult<string> result;
+        try
+        {
+            result = await Investigations.WithTimeout(ct => test.TestConnection(ct), TimeSpan.FromSeconds(60), "The connection test took longer than a minute.");
+        }
+        catch (Exception err)
+        {
+            var reason = err is LlmError ? err.Message : "The connection test failed unexpectedly.";
+            if (err is not LlmError) Console.Error.WriteLine($"connection test failed: {err}");
+            // A failing test leaves nothing live: investigations use recorded analysis until a test passes.
+            _llmState = new LlmState(null, "recorded",
+                new LlmStatus("recorded", provider, modelName, LlmKeys.Hint(key), "none", null, $"Last connection test failed: {reason}"));
+            return new LlmTestResult(false, $"{reason} Nothing was saved; ResolveAI is using recorded mode.", 0, 0, false, timer.ElapsedMilliseconds);
+        }
+
+        var id = LlmKeys.Identity(provider, key);
+        var estimated = result.Usage is null;
+        var input = result.Usage?.GetValueOrDefault("input_tokens") ?? UsageLog.Estimate(120);
+        var output = result.Usage?.GetValueOrDefault("output_tokens") ?? UsageLog.Estimate((result.Output ?? "").Length + 12);
+        UsageLog.Record(db, id, result.Model ?? candidate.Model, "connection_test", input, output, estimated);
+
+        var now = Js.IsoNow();
+        llmStore?.Save(provider, modelName, gateway, key, now);
+        _llmState = new LlmState(new MeteredProvider(candidate, db, id), "live",
+            new LlmStatus("live", provider, candidate.Model, id.Hint, llmStore is null ? "this session" : "Settings page", now, null));
+        return new LlmTestResult(true, $"Connected to {LlmKeys.Label(provider)} ({candidate.Model ?? "default model"}). Saved; new investigations use it now.",
+            input, output, estimated, timer.ElapsedMilliseconds);
+    }
+
+    /// <summary>Forgets the saved key and runs recorded analysis only (no model calls, no cost).</summary>
+    public void UseRecordedLlm(Caller caller)
+    {
+        RequireAdmin(caller);
+        llmStore?.Clear();
+        _llmState = new LlmState(null, "recorded", new LlmStatus("recorded", null, null, null, "none", null, null));
+    }
 
     public void DemoReset(Caller caller)
     {

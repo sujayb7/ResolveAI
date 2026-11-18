@@ -55,6 +55,18 @@ public interface ILlmProvider
     FollowUp? FollowUp { get; }
 }
 
+/// <summary>A live provider that can prove its key and model work with one tiny call (Settings → Test connection).</summary>
+public interface IConnectionTest
+{
+    Task<LlmResult<string>> TestConnection(CancellationToken ct);
+}
+
+/// <summary>The JSON reply asked for by the GitHub Copilot connection test.</summary>
+public sealed class ConnectionCheckReply
+{
+    public string Reply { get; set; } = "";
+}
+
 /// <summary>An error whose message is safe to show the user. <c>Retryable</c> marks malformed-output failures.</summary>
 public sealed class LlmError(string message, bool retryable = false) : Exception(message)
 {

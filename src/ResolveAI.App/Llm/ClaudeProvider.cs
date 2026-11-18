@@ -10,7 +10,7 @@ namespace ResolveAI.App.Llm;
 
 /// <summary>Live provider: calls Claude server-side with a structured-output schema.</summary>
 /// <param name="baseUrl">A gateway that speaks the Anthropic Messages API, in place of Anthropic's own API.</param>
-public sealed class ClaudeProvider(string apiKey, string model, HttpClient? http = null, string? baseUrl = null) : ILlmProvider
+public sealed class ClaudeProvider(string apiKey, string model, HttpClient? http = null, string? baseUrl = null) : ILlmProvider, IConnectionTest
 {
     private readonly AnthropicClient _client = http is null
         ? new() { ApiKey = apiKey, BaseUrl = baseUrl ?? EnvironmentUrl.Production, MaxRetries = 2, Timeout = TimeSpan.FromSeconds(90) }
@@ -121,6 +121,32 @@ public sealed class ClaudeProvider(string apiKey, string model, HttpClient? http
         {
             throw new LlmError("The model returned output that did not match the expected format.", retryable: true);
         }
+    }
+
+    /// <summary>One tiny call with the configured key and model: proves both work and costs a few dozen tokens.</summary>
+    public async Task<LlmResult<string>> TestConnection(CancellationToken ct)
+    {
+        BetaMessage res;
+        try
+        {
+            res = await _client.Beta.Messages.Create(new MessageCreateParams
+            {
+                Model = model,
+                MaxTokens = 16,
+                System = "This is a connectivity check. Reply with OK.",
+                Messages = [new BetaUserMessageParam { Content = "Reply with OK." }],
+            }, ct);
+        }
+        catch (Exception err) when (err is not OperationCanceledException)
+        {
+            throw ToLlmError(err);
+        }
+        var text = string.Concat(res.Content.Select(block => block.TryPickText(out var t) ? t.Text : ""));
+        return new LlmResult<string>(text, res.Model.Raw(), new Dictionary<string, long>
+        {
+            ["input_tokens"] = res.Usage.InputTokens,
+            ["output_tokens"] = res.Usage.OutputTokens,
+        });
     }
 
     private static LlmError ToLlmError(Exception err) => err switch

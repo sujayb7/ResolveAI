@@ -33,11 +33,12 @@
                     <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
                     Data source: Demo dataset
                 </span>
-                <span class="@Ui.Cx("inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 font-medium text-white ring-1 ring-white/15")"
-                      title="@(_config.LlmMode == "live" ? "Investigations use the configured live model" : "Investigations replay recorded/rule-based analysis; no model is called")">
+                @* The badge opens Settings, where the model and key are chosen and tested. *@
+                <a href="/settings" data-testid="llm-badge" class="@Ui.Cx("inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-1 font-medium text-white ring-1 ring-white/15 hover:bg-white/20")"
+                      title="@(_config.LlmMode == "live" ? "Investigations use the configured live model. Click to change the model or key." : "Investigations replay recorded/rule-based analysis; no model is called. Click to set up a live model.")">
                     <span aria-hidden="true" class="@Ui.Cx("h-1.5 w-1.5 rounded-full", _config.LlmMode == "live" ? "bg-emerald-400" : "bg-slate-400")"></span>
                     LLM: @(_config.LlmMode == "live" ? $"live · {_config.Model}" : _config.LiveAvailable ? "recorded · live on request" : "recorded (offline)")
-                </span>
+                </a>
             </div>
         </div>
     </header>

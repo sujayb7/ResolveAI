@@ -24,6 +24,8 @@ public sealed record AppDeps(Db Db, Providers Providers, Systems? Systems, AppSe
             "auto" when settings.ClaudeApiKey is not null => new ClaudeProvider(settings.ClaudeApiKey, settings.ClaudeModel),
             _ => null,
         };
+        // Every live call is metered against the key that pays for it (Settings → Token usage).
+        if (live is not null && LlmKeys.FromEnvironment(settings) is { } env) live = new MeteredProvider(live, db, LlmKeys.Identity(env.Provider, env.Key));
         var providers = new Providers(new RecordedProvider(), live);
 
         // One MCP server per system. A system that fails to start is shown as an error on the Systems page; it never stops the app.

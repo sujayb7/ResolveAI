@@ -4,7 +4,7 @@ using ResolveAI.Contracts;
 namespace ResolveAI.App.Llm;
 
 /// <summary>Live provider backed by the official GitHub Copilot SDK.</summary>
-public sealed class GitHubCopilotProvider : ILlmProvider
+public sealed class GitHubCopilotProvider : ILlmProvider, IConnectionTest
 {
     private readonly string _token;
     private readonly string _model;
@@ -24,6 +24,14 @@ public sealed class GitHubCopilotProvider : ILlmProvider
 
     public Task<LlmResult<RcaOutput>> DraftRca(RcaInput input, CancellationToken ct) =>
         Call<RcaOutput>(Prompts.RcaSystem, Prompts.RcaUserMessage(input), static _ => { }, ct);
+
+    /// <summary>One tiny structured call: proves the token, Copilot access and the model name all work.</summary>
+    public async Task<LlmResult<string>> TestConnection(CancellationToken ct)
+    {
+        var result = await Call<ConnectionCheckReply>(
+            "This is a connectivity check. Answer exactly as asked.", "Reply with the JSON object {\"reply\": \"OK\"}.", static _ => { }, ct);
+        return new LlmResult<string>(result.Output.Reply, result.Model);
+    }
 
     private async Task<LlmResult<T>> Call<T>(string system, string prompt, Action<T> validate, CancellationToken ct)
     {

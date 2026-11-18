@@ -44,7 +44,11 @@ builder.Services.AddSingleton<AppDeps>(_ => AppDeps.Create(settings).GetAwaiter(
 builder.Services.AddSingleton(sp =>
 {
     var deps = sp.GetRequiredService<AppDeps>();
-    return new AppService(deps.Db, deps.Providers, deps.Systems, deps.Settings);
+    var store = new LlmSettingsStore(deps.Db, sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>());
+    var service = new AppService(deps.Db, deps.Providers, deps.Systems, deps.Settings, store);
+    // A model saved on the Settings page passed a connection test, so it wins over .env.
+    service.RestoreSavedLlm();
+    return service;
 });
 builder.Services.AddScoped<AccessCodeStore>();
 

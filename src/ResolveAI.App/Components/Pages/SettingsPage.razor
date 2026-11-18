@@ -1,11 +1,130 @@
 @page "/settings"
 @inject AppService Service
 @inject AccessCodeStore Codes
+@inject NavigationManager Nav
 
 <PageTitle>ResolveAI</PageTitle>
 
 <div class="page-enter max-w-2xl space-y-4">
     <h1 class="text-xl font-semibold">Settings &amp; demo data</h1>
+
+    <Card Title="AI model and key" Icon="analysis">
+        <div class="mb-3 flex flex-wrap items-center gap-2 text-sm" data-testid="llm-status">
+            <span class="@Ui.Cx("inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium", _status.Mode == "live" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700")">
+                <span aria-hidden="true" class="@Ui.Cx("h-1.5 w-1.5 rounded-full", _status.Mode == "live" ? "bg-emerald-500" : "bg-slate-400")"></span>
+                @(_status.Mode == "live" ? "Live" : "Recorded")
+            </span>
+            @if (_status.Mode == "live")
+            {
+                <span>@LlmKeys.Label(_status.Provider) · <span class="font-mono">@(_status.Model ?? "default model")</span> · key <span class="font-mono">@_status.KeyHint</span></span>
+                <span class="text-xs text-slate-500">from @_status.Source@(_status.TestedAt is not null ? $" · tested {Ui.FormatTime(_status.TestedAt, true)}" : "")</span>
+            }
+            else
+            {
+                <span class="text-slate-600">No model is called; investigations use recorded or rule-based analysis.</span>
+            }
+        </div>
+        @if (_status.Warning is not null)
+        {
+            <p class="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">@_status.Warning</p>
+        }
+
+        <form class="grid gap-3 sm:grid-cols-2" @onsubmit="TestAndSave" @onsubmit:preventDefault="true">
+            <label class="space-y-1 text-sm font-medium text-slate-700">
+                Provider
+                <select @bind="_provider" class="w-full rounded-md border border-slate-300 bg-surface px-3 py-1.5 font-normal" data-testid="llm-provider">
+                    <option value="github">GitHub Copilot (GitHub token)</option>
+                    <option value="anthropic">Anthropic Claude (API key)</option>
+                </select>
+            </label>
+            <label class="space-y-1 text-sm font-medium text-slate-700">
+                Model <span class="font-normal text-slate-500">(empty = provider default)</span>
+                <input @bind="_model" @bind:event="oninput" maxlength="100" list="llm-models" placeholder="@(_provider == "github" ? "claude-sonnet-4.6" : "claude-sonnet-4-6")"
+                       class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono font-normal" data-testid="llm-model" />
+                <datalist id="llm-models">
+                    @foreach (var m in _provider == "github" ? CopilotModels : ClaudeModels)
+                    {
+                        <option value="@m"></option>
+                    }
+                </datalist>
+            </label>
+            <label class="space-y-1 text-sm font-medium text-slate-700 sm:col-span-2">
+                @(_provider == "github" ? "GitHub token" : "Anthropic API key")
+                <input type="password" @bind="_key" @bind:event="oninput" maxlength="500" autocomplete="off" data-testid="llm-key"
+                       placeholder="@(_status.Provider == _provider && _status.KeyHint is not null ? $"Leave empty to keep {_status.KeyHint}" : _provider == "github" ? "github_pat_…" : "sk-ant-…")"
+                       class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono font-normal" />
+                <span class="block text-xs font-normal text-slate-500">Stored encrypted on this server only, after a successful test. It is never sent back to the browser.</span>
+            </label>
+            @if (_provider == "anthropic")
+            {
+                <label class="space-y-1 text-sm font-medium text-slate-700 sm:col-span-2">
+                    Gateway base URL <span class="font-normal text-slate-500">(optional, for an Anthropic-compatible gateway)</span>
+                    <input @bind="_baseUrl" maxlength="300" placeholder="https://api.anthropic.com" class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono font-normal" />
+                </label>
+            }
+            <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
+                <Btn Type="submit" Variant="primary" Disabled="@_testing" data-testid="llm-test">
+                    @if (_testing)
+                    {
+                        <Spinner Class="h-3.5 w-3.5" />
+                    }
+                    @(_testing ? "Testing…" : "Test connection and save")
+                </Btn>
+                @if (_status.Mode == "live" || _status.Source == "Settings page")
+                {
+                    <Btn Variant="ghost" OnClick="UseRecorded" Disabled="@_testing">Forget key and use recorded mode</Btn>
+                }
+            </div>
+        </form>
+        @if (_test is not null)
+        {
+            <div class="@Ui.Cx("mt-3 rounded-md px-3 py-2 text-sm", _test.Ok ? "bg-emerald-50 text-emerald-900" : "bg-red-50 text-red-900")" data-testid="llm-test-result">
+                <strong>@(_test.Ok ? "Connected." : "Connection failed.")</strong> @_test.Message
+                @if (_test.Ok)
+                {
+                    <span class="block text-xs">Test used @Ui.Number(_test.InputTokens) input + @Ui.Number(_test.OutputTokens) output tokens@(_test.Estimated ? " (estimated)" : "") · @Ui.Number(_test.LatencyMs) ms</span>
+                }
+            </div>
+        }
+        @if (_llmError is not null)
+        {
+            <div class="mt-3"><ErrorBox Message="@_llmError" /></div>
+        }
+    </Card>
+
+    <Card Title="Token usage by key" Icon="metrics">
+        @if (_usage.Count == 0)
+        {
+            <p class="text-sm text-slate-500">No live model calls yet. Every live investigation, follow-up check, RCA draft and connection test is counted here.</p>
+        }
+        else
+        {
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm" data-testid="llm-usage">
+                    <thead class="text-xs text-slate-500">
+                        <tr><th class="py-1 pr-3 font-medium">Key</th><th class="pr-3 font-medium">Model</th><th class="pr-3 text-right font-medium">Calls</th><th class="pr-3 text-right font-medium">Today in / out</th><th class="pr-3 text-right font-medium">Total in / out</th><th class="font-medium">Last used</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in _usage)
+                        {
+                            <tr class="border-t border-slate-200">
+                                <td class="py-1.5 pr-3"><span class="font-mono">@u.KeyHint</span> <span class="text-xs text-slate-500">@LlmKeys.Label(u.Provider)</span></td>
+                                <td class="pr-3 font-mono text-xs">@(u.Model ?? "default")</td>
+                                <td class="pr-3 text-right tabular-nums">@u.Calls</td>
+                                <td class="pr-3 text-right tabular-nums">@Ui.Number(u.TodayInputTokens) / @Ui.Number(u.TodayOutputTokens)</td>
+                                <td class="pr-3 text-right tabular-nums">@Ui.Number(u.InputTokens) / @Ui.Number(u.OutputTokens)@(u.Estimated ? " ~" : "")</td>
+                                <td class="text-xs text-slate-500">@Ui.FormatTime(u.LastUsed, true)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (_usage.Any(u => u.Estimated))
+            {
+                <p class="mt-2 text-xs text-slate-500">~ The GitHub Copilot SDK does not report token counts, so those totals are estimated from text length (about 4 characters per token).</p>
+            }
+        }
+    </Card>
 
     <Card Title="Data source" Icon="source">
         <dl class="grid grid-cols-[10rem_1fr] gap-y-2 text-sm">
@@ -94,7 +213,77 @@
     private string? _resetError;
     private string _code = "";
 
-    protected override void OnInitialized() => _config = Service.Config();
+    // Suggestions only; any model name the provider accepts can be typed.
+    private static readonly string[] CopilotModels = ["claude-sonnet-4.6", "claude-haiku-4.5", "gpt-4.1", "gpt-4o-mini"];
+    private static readonly string[] ClaudeModels = ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-5-5"];
+
+    private LlmStatus _status = new("recorded", null, null, null, "none", null, null);
+    private List<LlmUsageRow> _usage = [];
+    private string _provider = "github";
+    private string _model = "";
+    private string _key = "";
+    private string? _baseUrl;
+    private bool _testing;
+    private LlmTestResult? _test;
+    private string? _llmError;
+
+    protected override void OnInitialized()
+    {
+        _config = Service.Config();
+        LoadLlm();
+        if (_status.Provider is { } p) _provider = p;
+        _model = _status.Model is { } m && m != "Copilot default" ? m : "";
+    }
+
+    private void LoadLlm()
+    {
+        _status = Service.GetLlmStatus();
+        _usage = Service.LlmUsage();
+    }
+
+    private async Task TestAndSave()
+    {
+        _testing = true;
+        _test = null;
+        _llmError = null;
+        try
+        {
+            _test = await Service.TestAndSaveLlm(_provider, _model, _key, _baseUrl, new Caller(Codes.Current, IsLocal));
+            _key = "";
+        }
+        catch (Exception err)
+        {
+            _llmError = Ui.Message(err);
+        }
+        finally
+        {
+            _testing = false;
+            AfterLlmChange();
+        }
+    }
+
+    private void UseRecorded()
+    {
+        _test = null;
+        _llmError = null;
+        try
+        {
+            Service.UseRecordedLlm(new Caller(Codes.Current, IsLocal));
+        }
+        catch (Exception err)
+        {
+            _llmError = Ui.Message(err);
+        }
+        AfterLlmChange();
+    }
+
+    private void AfterLlmChange()
+    {
+        _config = Service.Config();
+        LoadLlm();
+        // Navigating to the same page re-reads the header's "LLM:" badge; this page keeps its state.
+        Nav.NavigateTo(Nav.Uri, replace: true);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
