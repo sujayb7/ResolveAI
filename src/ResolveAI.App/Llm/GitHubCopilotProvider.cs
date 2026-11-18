@@ -4,7 +4,7 @@ using ResolveAI.Contracts;
 namespace ResolveAI.App.Llm;
 
 /// <summary>Live provider backed by the official GitHub Copilot SDK.</summary>
-public sealed class GitHubCopilotProvider : ILlmProvider, IConnectionTest
+public sealed class GitHubCopilotProvider : ILlmProvider, IConnectionTest, IModelCatalog
 {
     private readonly string _token;
     private readonly string _model;
@@ -33,15 +33,43 @@ public sealed class GitHubCopilotProvider : ILlmProvider, IConnectionTest
         return new LlmResult<string>(result.Output.Reply, result.Model);
     }
 
+    /// <summary>The models this token's Copilot plan allows; models turned off by policy are left out.</summary>
+    public async Task<List<LlmModelOption>> ListModels(CancellationToken ct)
+    {
+        try
+        {
+            await using var client = NewClient();
+            await client.StartAsync();
+            var models = await client.ListModelsAsync(ct);
+            var usable = models.Where(m => m.Policy is null || string.Equals(m.Policy.State, "enabled", StringComparison.OrdinalIgnoreCase)).ToList();
+            return (usable.Count > 0 ? usable : models)
+                .Select(m => new LlmModelOption(m.Id, Describe(m)))
+                .OrderBy(m => m.Label, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception err)
+        {
+            throw new LlmError($"GitHub Copilot could not list models for this token: {SafeMessage(err)}");
+        }
+    }
+
+    private static string Describe(ModelInfo m)
+    {
+        var name = string.IsNullOrWhiteSpace(m.Name) ? m.Id : m.Name;
+        return m.Billing?.Multiplier is { } x ? $"{name} · {x:0.##}x" : name;
+    }
+
+    private CopilotClient NewClient() => new(new CopilotClientOptions { GitHubToken = _token, UseLoggedInUser = false });
+
     private async Task<LlmResult<T>> Call<T>(string system, string prompt, Action<T> validate, CancellationToken ct)
     {
         try
         {
-            await using var client = new CopilotClient(new CopilotClientOptions
-            {
-                GitHubToken = _token,
-                UseLoggedInUser = false,
-            });
+            await using var client = NewClient();
             await client.StartAsync();
             var sessionConfig = new SessionConfig
             {
@@ -67,7 +95,11 @@ public sealed class GitHubCopilotProvider : ILlmProvider, IConnectionTest
         }
         catch (Exception err)
         {
-            throw new LlmError($"The GitHub Copilot SDK could not complete the investigation: {SafeMessage(err)}", retryable: true);
+            if (!string.IsNullOrWhiteSpace(_model) && err.Message.Contains("is not available", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new LlmError($"The model \"{_model}\" isn't available to this GitHub token. Pick one from the model list, or use Provider default.");
+            }
+            throw new LlmError($"The GitHub Copilot call failed: {SafeMessage(err)}", retryable: true);
         }
     }
 

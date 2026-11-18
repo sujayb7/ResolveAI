@@ -17,8 +17,8 @@ obj/
 tools/css/.cache/
 /.vs
 
-# Team-only notes, reviews, demo scripts and decks. Kept on our machines, never pushed.
-/team-knowledge/
+# Team-only notes, reviews, demo scripts and decks (at any depth, e.g. src/team-knowledge). Kept on our machines, never pushed.
+team-knowledge/
 # Presentations stay local (share them over Teams/OneDrive, not GitHub).
 *.ppt
 *.pptx

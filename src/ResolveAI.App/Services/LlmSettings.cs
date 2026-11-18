@@ -38,6 +38,9 @@ public static class LlmKeys
         return k.Length < 16 ? "••••" : $"{k[..Math.Min(11, k.Length - 8)]}…{k[^4..]}";
     }
 
+    /// <summary>The Anthropic model used when the Settings page leaves the model empty.</summary>
+    public const string DefaultClaudeModel = "claude-opus-5-5";
+
     public static KeyIdentity Identity(string provider, string key) => new(provider, Fingerprint(key), Hint(key));
 
     public static string Label(string? provider) => provider switch
@@ -50,7 +53,7 @@ public static class LlmKeys
     /// <summary>Builds the live provider for a key and model. Empty model: Copilot's default, or the app's Claude default.</summary>
     public static ILlmProvider Build(string provider, string key, string model, string? baseUrl) => provider switch
     {
-        "anthropic" => new ClaudeProvider(key, string.IsNullOrWhiteSpace(model) ? "claude-opus-5-5" : model.Trim(),
+        "anthropic" => new ClaudeProvider(key, string.IsNullOrWhiteSpace(model) ? DefaultClaudeModel : model.Trim(),
             baseUrl: string.IsNullOrWhiteSpace(baseUrl) ? null : baseUrl.Trim().TrimEnd('/')),
         "github" => new GitHubCopilotProvider(key, model.Trim()),
         _ => throw new AppError(400, "Choose GitHub Copilot or Anthropic Claude."),

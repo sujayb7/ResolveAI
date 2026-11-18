@@ -1,6 +1,7 @@
 @page "/settings"
 @inject AppService Service
 @inject AccessCodeStore Codes
+@using ResolveAI.App.Llm
 @inject NavigationManager Nav
 
 <PageTitle>ResolveAI</PageTitle>
@@ -9,60 +10,111 @@
     <h1 class="text-xl font-semibold">Settings &amp; demo data</h1>
 
     <Card Title="AI model and key" Icon="analysis">
-        <div class="mb-3 flex flex-wrap items-center gap-2 text-sm" data-testid="llm-status">
-            <span class="@Ui.Cx("inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium", _status.Mode == "live" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700")">
-                <span aria-hidden="true" class="@Ui.Cx("h-1.5 w-1.5 rounded-full", _status.Mode == "live" ? "bg-emerald-500" : "bg-slate-400")"></span>
+        @* Current state, one line. *@
+        <div class="@Ui.Cx("flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-3 py-2 text-sm", _status.Mode == "live" ? "bg-emerald-50" : "bg-slate-50")" data-testid="llm-status">
+            <span class="@Ui.Cx("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold", _status.Mode == "live" ? "bg-emerald-600 text-white" : "bg-slate-500 text-white")">
+                <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full bg-white"></span>
                 @(_status.Mode == "live" ? "Live" : "Recorded")
             </span>
             @if (_status.Mode == "live")
             {
-                <span>@LlmKeys.Label(_status.Provider) · <span class="font-mono">@(_status.Model ?? "default model")</span> · key <span class="font-mono">@_status.KeyHint</span></span>
-                <span class="text-xs text-slate-500">from @_status.Source@(_status.TestedAt is not null ? $" · tested {Ui.FormatTime(_status.TestedAt, true)}" : "")</span>
+                <span class="font-medium text-slate-900">@LlmKeys.Label(_status.Provider) · <span class="font-mono">@(_status.Model ?? "default model")</span></span>
+                <span class="ml-auto text-xs text-slate-500" title="Saved from: @_status.Source">key <span class="font-mono">@_status.KeyHint</span>@(_status.TestedAt is not null ? $" · tested {Ui.FormatTime(_status.TestedAt, true)}" : "")</span>
             }
             else
             {
-                <span class="text-slate-600">No model is called; investigations use recorded or rule-based analysis.</span>
+                <span class="text-slate-600">No model is called. Investigations use recorded analysis.</span>
             }
         </div>
         @if (_status.Warning is not null)
         {
-            <p class="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">@_status.Warning</p>
+            <p class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">@_status.Warning</p>
         }
 
-        <form class="grid gap-3 sm:grid-cols-2" @onsubmit="TestAndSave" @onsubmit:preventDefault="true">
-            <label class="space-y-1 text-sm font-medium text-slate-700">
-                Provider
-                <select @bind="_provider" class="w-full rounded-md border border-slate-300 bg-surface px-3 py-1.5 font-normal" data-testid="llm-provider">
-                    <option value="github">GitHub Copilot (GitHub token)</option>
-                    <option value="anthropic">Anthropic Claude (API key)</option>
-                </select>
-            </label>
-            <label class="space-y-1 text-sm font-medium text-slate-700">
-                Model <span class="font-normal text-slate-500">(empty = provider default)</span>
-                <input @bind="_model" @bind:event="oninput" maxlength="100" list="llm-models" placeholder="@(_provider == "github" ? "claude-sonnet-4.6" : "claude-sonnet-4-6")"
-                       class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono font-normal" data-testid="llm-model" />
-                <datalist id="llm-models">
-                    @foreach (var m in _provider == "github" ? CopilotModels : ClaudeModels)
+        <form class="mt-4 space-y-4" @onsubmit="TestAndSave" @onsubmit:preventDefault="true">
+            @* 1. Provider *@
+            <fieldset>
+                <legend class="mb-1.5 text-sm font-medium text-slate-700">1 · Provider</legend>
+                <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" data-testid="llm-provider">
+                    @foreach (var (id, name, hint) in Providers)
                     {
-                        <option value="@m"></option>
+                        var on = _provider == id;
+                        <button type="button" role="radio" aria-checked="@(on ? "true" : "false")" @onclick="() => ChooseProvider(id)" disabled="@_testing"
+                                class="@Ui.Cx("rounded-md border px-3 py-2 text-left text-sm transition", on ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500" : "border-slate-300 hover:border-slate-400")">
+                            <span class="block font-medium text-slate-900">@name</span>
+                            <span class="block text-xs text-slate-500">@hint</span>
+                        </button>
                     }
-                </datalist>
-            </label>
-            <label class="space-y-1 text-sm font-medium text-slate-700 sm:col-span-2">
-                @(_provider == "github" ? "GitHub token" : "Anthropic API key")
-                <input type="password" @bind="_key" @bind:event="oninput" maxlength="500" autocomplete="off" data-testid="llm-key"
-                       placeholder="@(_status.Provider == _provider && _status.KeyHint is not null ? $"Leave empty to keep {_status.KeyHint}" : _provider == "github" ? "github_pat_…" : "sk-ant-…")"
+                </div>
+            </fieldset>
+
+            @* 2. Key *@
+            <label class="block space-y-1 text-sm font-medium text-slate-700">
+                2 · @(_provider == "github" ? "GitHub token" : "Anthropic API key")
+                <input type="password" @bind="_key" @bind:after="KeyChanged" maxlength="500" autocomplete="off" data-testid="llm-key"
+                       placeholder="@(HasSavedKey ? $"Saved: {_status.KeyHint} (leave empty to keep it)" : _provider == "github" ? "github_pat_…" : "sk-ant-…")"
                        class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono font-normal" />
-                <span class="block text-xs font-normal text-slate-500">Stored encrypted on this server only, after a successful test. It is never sent back to the browser.</span>
+                <span class="block text-xs font-normal text-slate-500">Encrypted on the server after a passing test. Never sent back to the browser.</span>
             </label>
             @if (_provider == "anthropic")
             {
-                <label class="space-y-1 text-sm font-medium text-slate-700 sm:col-span-2">
-                    Gateway base URL <span class="font-normal text-slate-500">(optional, for an Anthropic-compatible gateway)</span>
-                    <input @bind="_baseUrl" maxlength="300" placeholder="https://api.anthropic.com" class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono font-normal" />
-                </label>
+                <details class="text-sm" open="@(!string.IsNullOrWhiteSpace(_baseUrl))">
+                    <summary class="cursor-pointer text-xs text-slate-500">Use a gateway (optional)</summary>
+                    <input @bind="_baseUrl" @bind:after="KeyChanged" maxlength="300" placeholder="https://api.anthropic.com" aria-label="Gateway base URL"
+                           class="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono" />
+                </details>
             }
-            <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
+
+            @* 3. Model *@
+            <div class="space-y-1">
+                <div class="flex items-center justify-between">
+                    <label for="llm-model" class="text-sm font-medium text-slate-700">3 · Model</label>
+                    <button type="button" class="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline disabled:opacity-50" @onclick="() => LoadModels(force: true)" disabled="@(_loadingModels || _testing)" data-testid="llm-refresh-models">
+                        @if (_loadingModels)
+                        {
+                            <Spinner Class="h-3 w-3" /><span>Loading models…</span>
+                        }
+                        else
+                        {
+                            <span>↻ Refresh list</span>
+                        }
+                    </button>
+                </div>
+                <select id="llm-model" @bind="ModelChoice" disabled="@(_loadingModels || _testing)" data-testid="llm-model"
+                        class="w-full rounded-md border border-slate-300 bg-surface px-3 py-1.5 text-sm">
+                    <option value="">Provider default@(_provider == "github" ? " (Copilot picks)" : $" ({LlmKeys.DefaultClaudeModel})")</option>
+                    @if (_model.Length > 0 && _model != Custom && !_models.Any(m => m.Id == _model))
+                    {
+                        <option value="@_model">@_model@(_models.Count > 0 ? " (not in your list)" : "")</option>
+                    }
+                    @foreach (var m in _models)
+                    {
+                        <option value="@m.Id">@m.Label@(m.Label == m.Id ? "" : $" — {m.Id}")</option>
+                    }
+                    <option value="@Custom">Other (type a model name)…</option>
+                </select>
+                @if (_customModel)
+                {
+                    <input @bind="_model" @bind:event="oninput" maxlength="100" aria-label="Model name" placeholder="@(_provider == "github" ? "e.g. gpt-4.1" : "e.g. claude-sonnet-4-6")"
+                           class="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-sm" />
+                }
+                <p class="text-xs text-slate-500" data-testid="llm-model-note">
+                    @if (_modelsError is not null)
+                    {
+                        <span class="text-red-700">@_modelsError</span>
+                    }
+                    else if (_models.Count > 0)
+                    {
+                        <text>@_models.Count models available to this key.</text>
+                    }
+                    else if (!_loadingModels)
+                    {
+                        <text>Enter a key to see the models it can use.</text>
+                    }
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
                 <Btn Type="submit" Variant="primary" Disabled="@_testing" data-testid="llm-test">
                     @if (_testing)
                     {
@@ -72,17 +124,17 @@
                 </Btn>
                 @if (_status.Mode == "live" || _status.Source == "Settings page")
                 {
-                    <Btn Variant="ghost" OnClick="UseRecorded" Disabled="@_testing">Forget key and use recorded mode</Btn>
+                    <Btn Variant="ghost" OnClick="UseRecorded" Disabled="@_testing">Switch to recorded mode</Btn>
                 }
             </div>
         </form>
         @if (_test is not null)
         {
             <div class="@Ui.Cx("mt-3 rounded-md px-3 py-2 text-sm", _test.Ok ? "bg-emerald-50 text-emerald-900" : "bg-red-50 text-red-900")" data-testid="llm-test-result">
-                <strong>@(_test.Ok ? "Connected." : "Connection failed.")</strong> @_test.Message
+                <strong>@(_test.Ok ? "✓ Connected." : "✗ Connection failed.")</strong> @_test.Message
                 @if (_test.Ok)
                 {
-                    <span class="block text-xs">Test used @Ui.Number(_test.InputTokens) input + @Ui.Number(_test.OutputTokens) output tokens@(_test.Estimated ? " (estimated)" : "") · @Ui.Number(_test.LatencyMs) ms</span>
+                    <span class="block text-xs">@Ui.Number(_test.InputTokens) in + @Ui.Number(_test.OutputTokens) out tokens@(_test.Estimated ? " (estimated)" : "") · @Ui.Number(_test.LatencyMs) ms</span>
                 }
             </div>
         }
@@ -95,7 +147,7 @@
     <Card Title="Token usage by key" Icon="metrics">
         @if (_usage.Count == 0)
         {
-            <p class="text-sm text-slate-500">No live model calls yet. Every live investigation, follow-up check, RCA draft and connection test is counted here.</p>
+            <p class="text-sm text-slate-500">No live model calls yet.</p>
         }
         else
         {
@@ -108,7 +160,7 @@
                         @foreach (var u in _usage)
                         {
                             <tr class="border-t border-slate-200">
-                                <td class="py-1.5 pr-3"><span class="font-mono">@u.KeyHint</span> <span class="text-xs text-slate-500">@LlmKeys.Label(u.Provider)</span></td>
+                                <td class="py-1.5 pr-3"><span class="font-mono">@u.KeyHint</span> <span class="block text-xs text-slate-500">@LlmKeys.Label(u.Provider)</span></td>
                                 <td class="pr-3 font-mono text-xs">@(u.Model ?? "default")</td>
                                 <td class="pr-3 text-right tabular-nums">@u.Calls</td>
                                 <td class="pr-3 text-right tabular-nums">@Ui.Number(u.TodayInputTokens) / @Ui.Number(u.TodayOutputTokens)</td>
@@ -121,37 +173,35 @@
             </div>
             @if (_usage.Any(u => u.Estimated))
             {
-                <p class="mt-2 text-xs text-slate-500">~ The GitHub Copilot SDK does not report token counts, so those totals are estimated from text length (about 4 characters per token).</p>
+                <p class="mt-2 text-xs text-slate-500">~ Estimated: Copilot doesn't report token counts.</p>
             }
         }
     </Card>
 
     <Card Title="Data source" Icon="source">
-        <dl class="grid grid-cols-[10rem_1fr] gap-y-2 text-sm">
-            <dt class="text-slate-500">Mode</dt>
-            <dd class="font-medium">Demo dataset</dd>
-            <dt class="text-slate-500">Integrations</dt>
-            <dd>None connected. Incidents, logs, deployments, and measurements come from the built-in demonstration data, not live systems.</dd>
-            <dt class="text-slate-500">LLM mode</dt>
+        <dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+            <dt class="text-slate-500">Data</dt>
+            <dd><span class="font-medium">Demo dataset</span> <span class="text-slate-500">· no live integrations</span></dd>
+            <dt class="text-slate-500">Analysis</dt>
             <dd>
                 @if (_config.LlmMode == "live")
                 {
-                    <text>Live — investigations call the configured model (<span class="tabular-nums">@_config.Model</span>) from the server.</text>
+                    <text>Live model · <span class="font-mono">@_config.Model</span></text>
                 }
                 else
                 {
-                    <text>Recorded by default — investigations replay a recorded analysis (INC-1042) or deterministic rules. No model is called.</text>
+                    <text>Recorded <span class="text-slate-500">· no model is called</span></text>
                 }
             </dd>
-            <dt class="text-slate-500">Live model</dt>
+            <dt class="text-slate-500">Daily limit</dt>
             <dd>
                 @if (_config.LiveAvailable)
                 {
-                    <text>Available on request (<span class="tabular-nums">@_config.LiveModel</span>) · @_config.LiveRunsToday of @_config.LiveDailyLimit model calls used today (UTC).</text>
+                    <span class="tabular-nums">@_config.LiveRunsToday / @_config.LiveDailyLimit</span> <span class="text-slate-500">model calls today (UTC)</span>
                 }
                 else
                 {
-                    <text>Not available on this server (needs a configured live provider and LIVE_ACCESS_CODE).</text>
+                    <span class="text-slate-500">Live runs off (needs a live provider and LIVE_ACCESS_CODE)</span>
                 }
             </dd>
         </dl>
@@ -159,8 +209,7 @@
 
     <Card Title="Access code" Icon="key">
         <p class="text-sm text-slate-600">
-            Live model runs may incur usage costs, so they need the access code set on the server (<span class="font-mono">LIVE_ACCESS_CODE</span>).
-            It also allows demo reset from outside localhost. The code is kept only in this browser.
+            Needed for live model runs and admin actions from outside localhost. Matches <span class="font-mono">LIVE_ACCESS_CODE</span>; kept only in this browser.
         </p>
         <form class="mt-3 flex flex-wrap items-center gap-2" @onsubmit="SaveCode" @onsubmit:preventDefault="true">
             <input type="password" @bind="_code" @bind:event="oninput" placeholder="Access code" aria-label="Access code" autocomplete="off"
@@ -175,9 +224,7 @@
     </Card>
 
     <Card Title="Reset demo data" Icon="reset">
-        <p class="text-sm text-slate-600">
-            Deletes all investigations, feedback and RCA drafts and restores the seeded incidents, so the demo can be run again from a known state.
-        </p>
+        <p class="text-sm text-slate-600">Deletes investigations, feedback and RCA drafts, and restores the seeded incidents.</p>
         <div class="mt-3 flex items-center gap-2">
             @if (!_confirming)
             {
@@ -213,19 +260,39 @@
     private string? _resetError;
     private string _code = "";
 
-    // Suggestions only; any model name the provider accepts can be typed.
-    private static readonly string[] CopilotModels = ["claude-sonnet-4.6", "claude-haiku-4.5", "gpt-4.1", "gpt-4o-mini"];
-    private static readonly string[] ClaudeModels = ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-5-5"];
+    private static readonly (string Id, string Name, string Hint)[] Providers =
+    [
+        ("github", "GitHub Copilot", "Uses a GitHub token with Copilot access"),
+        ("anthropic", "Anthropic Claude", "Uses an Anthropic API key"),
+    ];
+    private const string Custom = "__custom";
 
     private LlmStatus _status = new("recorded", null, null, null, "none", null, null);
     private List<LlmUsageRow> _usage = [];
     private string _provider = "github";
     private string _model = "";
+    private bool _customModel;
     private string _key = "";
     private string? _baseUrl;
     private bool _testing;
     private LlmTestResult? _test;
     private string? _llmError;
+    private List<LlmModelOption> _models = [];
+    private bool _loadingModels;
+    private string? _modelsError;
+    private int _modelsRequest;
+
+    private bool HasSavedKey => _status.Provider == _provider && _status.KeyHint is not null;
+
+    private string ModelChoice
+    {
+        get => _customModel ? Custom : _model;
+        set
+        {
+            _customModel = value == Custom;
+            _model = _customModel ? "" : value;
+        }
+    }
 
     protected override void OnInitialized()
     {
@@ -233,6 +300,46 @@
         LoadLlm();
         if (_status.Provider is { } p) _provider = p;
         _model = _status.Model is { } m && m != "Copilot default" ? m : "";
+    }
+
+    private async Task ChooseProvider(string provider)
+    {
+        if (provider == _provider) return;
+        _provider = provider;
+        _model = "";
+        _customModel = false;
+        _key = "";
+        _test = null;
+        await LoadModels();
+    }
+
+    private Task KeyChanged() => LoadModels();
+
+    /// <summary>Asks the provider which models the typed (or saved) key can use. A late answer for an older request is ignored.</summary>
+    private async Task LoadModels(bool force = false)
+    {
+        var request = ++_modelsRequest;
+        var provider = _provider;
+        _loadingModels = true;
+        _modelsError = null;
+        if (force) _models = [];
+        StateHasChanged();
+        try
+        {
+            var models = await Service.ListLlmModels(provider, _key, _baseUrl, new Caller(Codes.Current, IsLocal));
+            if (request != _modelsRequest) return;
+            _models = models;
+        }
+        catch (Exception err)
+        {
+            if (request != _modelsRequest) return;
+            _models = [];
+            _modelsError = $"{Ui.Message(err)} You can still choose Provider default or type a name.";
+        }
+        finally
+        {
+            if (request == _modelsRequest) _loadingModels = false;
+        }
     }
 
     private void LoadLlm()
@@ -290,6 +397,8 @@
         if (!firstRender) return;
         await Codes.Load();
         _code = Codes.Current;
+        StateHasChanged();
+        await LoadModels();
         StateHasChanged();
     }
 

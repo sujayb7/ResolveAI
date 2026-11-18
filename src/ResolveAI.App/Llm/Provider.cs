@@ -61,6 +61,15 @@ public interface IConnectionTest
     Task<LlmResult<string>> TestConnection(CancellationToken ct);
 }
 
+/// <summary>One model a key can use, for the Settings page's model list.</summary>
+public sealed record LlmModelOption(string Id, string Label);
+
+/// <summary>A live provider that can list the models its key is allowed to use.</summary>
+public interface IModelCatalog
+{
+    Task<List<LlmModelOption>> ListModels(CancellationToken ct);
+}
+
 /// <summary>The JSON reply asked for by the GitHub Copilot connection test.</summary>
 public sealed class ConnectionCheckReply
 {

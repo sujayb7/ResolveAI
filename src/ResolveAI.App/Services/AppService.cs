@@ -307,9 +307,33 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         return LlmKeys.FromEnvironment(settings) is { } env && env.Provider == provider ? env.Key : null;
     }
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset At, List<LlmModelOption> Models)> _modelLists = new();
+
+    /// <summary>
+    /// The models a key can use, for the Settings page's model list. An empty key reuses the saved or .env key for that provider.
+    /// Returns an empty list when there is no key yet. Lists are cached for ten minutes per key.
+    /// </summary>
+    public async Task<List<LlmModelOption>> ListLlmModels(string provider, string? apiKey, string? baseUrl, Caller caller)
+    {
+        RequireAdmin(caller);
+        if (provider is not ("github" or "anthropic")) throw new AppError(400, "Choose GitHub Copilot or Anthropic Claude.");
+        var key = apiKey?.Trim() is { Length: > 0 } typed ? typed : ReuseKey(provider);
+        if (key is null) return [];
+        if (key.Length > 500) throw new AppError(400, "Invalid request: the API key is too long.");
+        var gateway = provider == "anthropic" && !string.IsNullOrWhiteSpace(baseUrl) ? baseUrl.Trim().TrimEnd('/') : null;
+        var cacheKey = $"{provider}|{LlmKeys.Fingerprint(key)}|{gateway}";
+        if (_modelLists.TryGetValue(cacheKey, out var hit) && DateTimeOffset.UtcNow - hit.At < TimeSpan.FromMinutes(10)) return hit.Models;
+
+        if (LlmKeys.Build(provider, key, "", gateway) is not IModelCatalog catalog) return [];
+        var models = await Investigations.WithTimeout(ct => catalog.ListModels(ct), TimeSpan.FromSeconds(45), "Listing models took longer than 45 seconds.");
+        _modelLists[cacheKey] = (DateTimeOffset.UtcNow, models);
+        return models;
+    }
+
     /// <summary>
     /// Makes one tiny call with the given provider, model and key. If it answers, the settings are saved (key encrypted) and new
-    /// investigations use them at once. If not, nothing is saved and ResolveAI drops to recorded mode, so a demo never runs on a broken key.
+    /// investigations use them at once. If not, nothing is saved: a model that already passed its test keeps running, otherwise
+    /// ResolveAI drops to recorded mode, so a demo never runs on a broken key.
     /// </summary>
     public async Task<LlmTestResult> TestAndSaveLlm(string provider, string? model, string? apiKey, string? baseUrl, Caller caller)
     {
@@ -335,7 +359,13 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         {
             var reason = err is LlmError ? err.Message : "The connection test failed unexpectedly.";
             if (err is not LlmError) Console.Error.WriteLine($"connection test failed: {err}");
-            // A failing test leaves nothing live: investigations use recorded analysis until a test passes.
+            // A failing test saves nothing. A model that already passed its own test keeps running; otherwise recorded analysis is used.
+            var current = Llm;
+            if (current.Mode == "live" && current.Live is not null)
+            {
+                return new LlmTestResult(false, $"{reason} Nothing was saved; still using {LlmKeys.Label(current.Status.Provider)} ({current.Status.Model ?? "default model"}).",
+                    0, 0, false, timer.ElapsedMilliseconds);
+            }
             _llmState = new LlmState(null, "recorded",
                 new LlmStatus("recorded", provider, modelName, LlmKeys.Hint(key), "none", null, $"Last connection test failed: {reason}"));
             return new LlmTestResult(false, $"{reason} Nothing was saved; ResolveAI is using recorded mode.", 0, 0, false, timer.ElapsedMilliseconds);

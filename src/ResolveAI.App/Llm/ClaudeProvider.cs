@@ -10,7 +10,7 @@ namespace ResolveAI.App.Llm;
 
 /// <summary>Live provider: calls Claude server-side with a structured-output schema.</summary>
 /// <param name="baseUrl">A gateway that speaks the Anthropic Messages API, in place of Anthropic's own API.</param>
-public sealed class ClaudeProvider(string apiKey, string model, HttpClient? http = null, string? baseUrl = null) : ILlmProvider, IConnectionTest
+public sealed class ClaudeProvider(string apiKey, string model, HttpClient? http = null, string? baseUrl = null) : ILlmProvider, IConnectionTest, IModelCatalog
 {
     private readonly AnthropicClient _client = http is null
         ? new() { ApiKey = apiKey, BaseUrl = baseUrl ?? EnvironmentUrl.Production, MaxRetries = 2, Timeout = TimeSpan.FromSeconds(90) }
@@ -147,6 +147,23 @@ public sealed class ClaudeProvider(string apiKey, string model, HttpClient? http
             ["input_tokens"] = res.Usage.InputTokens,
             ["output_tokens"] = res.Usage.OutputTokens,
         });
+    }
+
+    /// <summary>The models this key can call, newest first. A gateway may not implement the list endpoint; the page then shows suggestions.</summary>
+    public async Task<List<LlmModelOption>> ListModels(CancellationToken ct)
+    {
+        try
+        {
+            var page = await _client.Models.List(new Anthropic.Models.Models.ModelListParams { Limit = 100 }, ct);
+            return page.Items
+                .OrderByDescending(m => m.CreatedAt)
+                .Select(m => new LlmModelOption(m.ID, string.IsNullOrWhiteSpace(m.DisplayName) ? m.ID : m.DisplayName))
+                .ToList();
+        }
+        catch (Exception err) when (err is not OperationCanceledException)
+        {
+            throw ToLlmError(err);
+        }
     }
 
     private static LlmError ToLlmError(Exception err) => err switch
