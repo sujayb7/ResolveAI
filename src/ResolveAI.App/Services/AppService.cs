@@ -460,6 +460,16 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         return "Test message sent. Check the Teams channel; notifications are on.";
     }
 
+    /// <summary>
+    /// The full webhook URL, for the Settings page's Show and Copy buttons. It is a secret (anyone holding it can post to the
+    /// channel), so it takes the same rule as changing it: localhost or the access code, and only when a person asks.
+    /// </summary>
+    public string RevealTeamsUrl(Caller caller)
+    {
+        RequireAdmin(caller);
+        return notifier?.Url ?? throw new AppError(404, "No Teams webhook is configured.");
+    }
+
     public void SetTeamsOn(bool on, Caller caller)
     {
         RequireAdmin(caller);
