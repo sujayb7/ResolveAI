@@ -41,11 +41,14 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
 // Tests register their own AppDeps first; the real one (which starts child processes) is only built when nothing else was registered.
 builder.Services.AddSingleton<AppDeps>(_ => AppDeps.Create(settings).GetAwaiter().GetResult());
+builder.Services.AddHttpClient<TeamsNotifier>();
 builder.Services.AddSingleton(sp =>
 {
     var deps = sp.GetRequiredService<AppDeps>();
+    var httpFactory = sp.GetRequiredService<IHttpClientFactory>();
+    var notifier = new TeamsNotifier(httpFactory.CreateClient(), deps.Settings.TeamsWebhookUrl);
     var store = new LlmSettingsStore(deps.Db, sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>());
-    var service = new AppService(deps.Db, deps.Providers, deps.Systems, deps.Settings, store);
+    var service = new AppService(deps.Db, deps.Providers, deps.Systems, deps.Settings, notifier, store);
     // A model saved on the Settings page passed a connection test, so it wins over .env.
     service.RestoreSavedLlm();
     return service;
