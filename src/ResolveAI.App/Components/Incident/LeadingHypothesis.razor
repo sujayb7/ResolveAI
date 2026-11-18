@@ -5,7 +5,7 @@
     <div class="p-5">
         <div class="flex flex-wrap items-center gap-2">
             <span class="text-xs font-semibold uppercase tracking-wide label-gradient">Most likely explanation</span>
-            <AiBadge>@(Inv.LlmMode == "live" ? $"AI-generated ({Inv.ModelName ?? "Claude"}) — not confirmed" : "Recorded analysis — not confirmed")</AiBadge>
+            <AiBadge>@Ui.AiLabel(Inv)</AiBadge>
             @if (!H.Speculative)
             {
                 <ConfidenceChip Confidence="@H.Confidence" />

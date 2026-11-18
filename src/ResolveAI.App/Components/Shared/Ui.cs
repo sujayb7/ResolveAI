@@ -127,6 +127,14 @@ public static class Ui
         _ => ("Not investigated", "bg-slate-100 text-slate-600", "No completed investigation yet"),
     };
 
+    /// <summary>
+    /// The label on every AI result: who produced it, and that no person has confirmed it yet. A provider may not report its
+    /// model name (Copilot's default model), so an empty name never shows as "()".
+    /// </summary>
+    public static string AiLabel(Investigation inv) => inv.LlmMode == "live"
+        ? $"AI-generated ({(string.IsNullOrWhiteSpace(inv.ModelName) ? "live model" : inv.ModelName)}) — not confirmed"
+        : "Recorded analysis — not confirmed";
+
     /// <summary>Which tab shows a cited record, by the kind of its evidence ID.</summary>
     public static string TabForEvidence(string reference)
     {
