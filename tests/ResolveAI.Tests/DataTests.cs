@@ -61,7 +61,7 @@ public class DataTests
     {
         using var db = new Db(":memory:");
         Assert.Equal(
-            ["001_init.sql", "002_trace_review.sql", "003_tool_calls.sql", "004_remove_duplicate_invoice_incidents.sql", "005_llm_settings.sql"],
+            ["001_init.sql", "002_trace_review.sql", "003_tool_calls.sql", "004_remove_duplicate_invoice_incidents.sql", "005_llm_settings.sql", "006_app_prefs.sql"],
             db.All<string>("SELECT name FROM _migrations ORDER BY name"));
     }
 

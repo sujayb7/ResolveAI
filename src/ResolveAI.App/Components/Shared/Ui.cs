@@ -128,12 +128,14 @@ public static class Ui
     };
 
     /// <summary>
-    /// The label on every AI result: who produced it, and that no person has confirmed it yet. A provider may not report its
-    /// model name (Copilot's default model), so an empty name never shows as "()".
+    /// The label on every AI result: who produced it, and that no person has confirmed it yet. The model name shows only when
+    /// Settings → "Show model name" is on; a provider may not report it (Copilot's default model), so an empty name never shows as "()".
     /// </summary>
-    public static string AiLabel(Investigation inv) => inv.LlmMode == "live"
-        ? $"AI-generated ({(string.IsNullOrWhiteSpace(inv.ModelName) ? "live model" : inv.ModelName)}) — not confirmed"
-        : "Recorded analysis — not confirmed";
+    public static string AiLabel(Investigation inv, bool showModel) => inv.LlmMode != "live"
+        ? "Recorded analysis — not confirmed"
+        : showModel
+            ? $"AI-generated ({(string.IsNullOrWhiteSpace(inv.ModelName) ? "live model" : inv.ModelName)}) — not confirmed"
+            : "AI-generated — not confirmed";
 
     /// <summary>Which tab shows a cited record, by the kind of its evidence ID.</summary>
     public static string TabForEvidence(string reference)

@@ -393,6 +393,19 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         _llmState = new LlmState(null, "recorded", new LlmStatus("recorded", null, null, null, "none", null, null));
     }
 
+    private volatile string? _showModelName;
+
+    /// <summary>Whether AI results name the model that wrote them. Off by default; set on the Settings page for every viewer.</summary>
+    public bool ShowModelName => (_showModelName ??= db.Get<string>("SELECT value FROM app_prefs WHERE name = 'show_model_name'") ?? "0") == "1";
+
+    public void SetShowModelName(bool show, Caller caller)
+    {
+        RequireAdmin(caller);
+        var value = show ? "1" : "0";
+        db.Run("INSERT OR REPLACE INTO app_prefs (name, value) VALUES ('show_model_name', @value)", new { value });
+        _showModelName = value;
+    }
+
     public void DemoReset(Caller caller)
     {
         if (!settings.DemoMode) throw new AppError(404, "Not found");

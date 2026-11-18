@@ -142,6 +142,21 @@
         {
             <div class="mt-3"><ErrorBox Message="@_llmError" /></div>
         }
+
+        <label class="mt-4 flex cursor-pointer items-start justify-between gap-4 border-t border-slate-100 pt-4">
+            <span class="text-sm">
+                <span class="block font-medium text-slate-700">Show model name on AI results</span>
+                <span class="block text-xs text-slate-500">@(_showModel ? "AI-generated (claude-haiku-4.5) — not confirmed" : "AI-generated — not confirmed")</span>
+            </span>
+            <input type="checkbox" role="switch" class="peer sr-only" checked="@_showModel" @onchange="ToggleShowModel" data-testid="show-model-name" />
+            <span aria-hidden="true" class="@Ui.Cx("relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500", _showModel ? "bg-blue-600" : "bg-slate-300")">
+                <span class="@Ui.Cx("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all", _showModel ? "left-[18px]" : "left-0.5")"></span>
+            </span>
+        </label>
+        @if (_prefError is not null)
+        {
+            <p class="mt-2 text-xs text-red-700">@_prefError</p>
+        }
     </Card>
 
     <Card Title="Token usage by key" Icon="metrics">
@@ -282,6 +297,23 @@
     private string? _modelsError;
     private int _modelsRequest;
 
+    private bool _showModel;
+    private string? _prefError;
+
+    private void ToggleShowModel(ChangeEventArgs e)
+    {
+        _prefError = null;
+        try
+        {
+            Service.SetShowModelName(e.Value is true, new Caller(Codes.Current, IsLocal));
+        }
+        catch (Exception err)
+        {
+            _prefError = Ui.Message(err);
+        }
+        _showModel = Service.ShowModelName;
+    }
+
     private bool HasSavedKey => _status.Provider == _provider && _status.KeyHint is not null;
 
     private string ModelChoice
@@ -297,6 +329,7 @@
     protected override void OnInitialized()
     {
         _config = Service.Config();
+        _showModel = Service.ShowModelName;
         LoadLlm();
         if (_status.Provider is { } p) _provider = p;
         _model = _status.Model is { } m && m != "Copilot default" ? m : "";

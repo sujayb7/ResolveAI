@@ -1,3 +1,4 @@
+@inject AppService Service
 @if (Inv is null)
 {
     <div class="space-y-4">
@@ -73,7 +74,7 @@ else
             <div class="mb-2 flex flex-wrap items-center gap-2">
                 <SectionTile Kind="analysis" />
                 <h3 class="text-sm font-semibold text-slate-900">Investigation summary</h3>
-                <AiBadge>@Ui.AiLabel(Inv)</AiBadge>
+                <AiBadge>@Ui.AiLabel(Inv, Service.ShowModelName)</AiBadge>
                 <span class="ml-auto text-xs text-slate-500">
                     @Inv.EvidenceCount information items reviewed · completed @Ui.FormatTime(Inv.CompletedAt)
                 </span>

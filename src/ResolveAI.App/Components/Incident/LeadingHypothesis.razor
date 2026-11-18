@@ -1,3 +1,4 @@
+@inject AppService Service
 @inject IJSRuntime JS
 
 @* The first thing a finished run shows: the top hypothesis, what backs it, what to check, and what to do next. It stays labelled as unconfirmed. *@
@@ -5,7 +6,7 @@
     <div class="p-5">
         <div class="flex flex-wrap items-center gap-2">
             <span class="text-xs font-semibold uppercase tracking-wide label-gradient">Most likely explanation</span>
-            <AiBadge>@Ui.AiLabel(Inv)</AiBadge>
+            <AiBadge>@Ui.AiLabel(Inv, Service.ShowModelName)</AiBadge>
             @if (!H.Speculative)
             {
                 <ConfidenceChip Confidence="@H.Confidence" />
