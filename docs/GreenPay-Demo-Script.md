@@ -14,9 +14,9 @@ python3 demo-systems/live-demo.py setup     # maps a "greenpay" service and link
 
 ## How ResolveAI knows to check the GitHub code
 
-`mcp.config.json` links the repository to an application: `code.service: greenpay`. When you create an incident with **Application name = greenpay**, the investigation automatically searches the repository's code (source files first, docs last) for words from the title and details, and cites the matching lines. You can see the link on the **Systems** page, and the **Investigate incident** form shows a hint as soon as you type `greenpay`.
+`mcp.config.json` links the repository to an application: `code.service: greenpay`. When you create an incident with **Application name = greenpay**, the investigation automatically searches the repository's code (source files first, docs last) for words from the title and details, reads the repository's recent commit history (`code_history`), and cites the matching lines and commits. The ticket only needs to describe the symptoms: the code and the commit come from GitHub, not from the ticket. You can see the link on the **Systems** page, and the **Investigate incident** form shows a hint as soon as you type `greenpay`.
 
-**`inject` is optional.** The code check needs no setup per demo. `inject` only adds fresh, timestamped logs, a deploy and metrics, so the investigation also has runtime evidence (who attacked, when, what moved). Without it, ResolveAI still finds the bug from the code.
+**`inject` is optional.** The code check needs no setup per demo: code and commits are read live from GitHub. `inject` adds what GitHub can't have: runtime evidence (the attacker's log lines, the deploy record and the metrics), the data a real team would get from its log platform, CD system and monitoring. Without it, ResolveAI can still point at the vulnerable code, but with lower confidence and no attack timeline.
 
 ## Running one incident
 
@@ -41,7 +41,7 @@ Then in the app: **Investigate incident** → paste the ticket below → **Run i
 | **Environment** | `production` |
 | **Severity** | `SEV-1` |
 | **Customer impact** | `An attacker signed in as admin and moved funds out of the operations account.` |
-| **Incident details** | `An admin session was created from an external IP using a crafted username value and no valid password. The login query appears to be built from the username, and the password is hashed with md5 rather than verified with password_verify. Large transfers left the operations account moments later. The afternoon PAY-318 login change is the only recent release.` |
+| **Incident details** | `Security monitoring flagged an admin session from an external IP that is not on our admin list. The admin says they did not sign in and their password has not been shared. Several failed sign-ins from the same IP came just before it. Within minutes, two large transfers left the operations account (ACC-1001) for an account we don't recognise. We don't yet know how the attacker got in.` |
 
 **What ResolveAI finds (expected):** *SQL injection and weak md5 password check introduced by the PAY-318 single-query login change* — **high confidence**, citing `src/Auth.php` (~line 19) and the PAY-318 deploy. **Check this first:** review the PAY-318 diff and the current `src/Auth.php` login code.
 
@@ -58,8 +58,8 @@ Then in the app: **Investigate incident** → paste the ticket below → **Run i
 | **Application name** | `greenpay` |
 | **Environment** | `production` |
 | **Severity** | `SEV-2` |
-| **Customer impact** | `The balance API returned the treasury account balance to an external caller that supplied key=0.` |
-| **Incident details** | `The balance API compares the supplied key against the stored api_key with a loose comparison. The treasury api_key was generated with md5 and begins with 0e, so a caller passing key=0 is treated as equal. There was no deployment; this looks like a long-standing flaw in the comparison.` |
+| **Customer impact** | `The treasury account balance was returned to an unknown external caller.` |
+| **Incident details** | `An external caller read the treasury settlement account (ACC-9000) balance through the balance API several times. The caller never signed in, and the treasury reconciliation job is the only client that holds a key for that account. The job's key has not been rotated or shared. We don't know how the caller was authorised.` |
 
 Stage it with `python3 demo-systems/live-demo.py inject greenpay-treasury-key`.
 
@@ -73,7 +73,7 @@ Stage it with `python3 demo-systems/live-demo.py inject greenpay-treasury-key`.
 1. **Systems** tab: point out the **GitHub repository** source (connected) alongside logs, deploys and metrics, and the **Test connection** button.
 2. `inject greenpay-login-bypass`, then **Investigate incident** with ticket #1. Show the live stages running.
 3. On **AI findings**: read the top explanation and the **"Check this first"** box naming `src/Auth.php`. Click an evidence chip (e.g. a `code_search` result) to show it pointing at real repository code.
-4. **Connected-source checks** tab: show the `code_search` / `files_search` / `deploys_recent` calls that produced the evidence — all read-only.
+4. **Connected-source checks** tab: show the `code_search` / `code_history` / `files_search` / `deploys_recent` calls that produced the evidence — all read-only.
 5. Note the **"AI-generated — not confirmed"** label and the human-in-the-loop: **Record what you found** → **Draft RCA**.
 6. (Optional) Run ticket #2 to show a no-deploy incident where the AI still finds the flaw in the code.
 

@@ -89,7 +89,7 @@
     "environment": "production",
     "severity": "SEV-1",
     "impact": "An attacker signed in as admin and moved about $175,000 out of the operations account.",
-    "details": "An admin session was created from an external IP using a crafted username value and no valid password. The login query appears to be built from the username, and the password is hashed with md5 rather than verified with password_verify. Large transfers left the operations account moments later. The afternoon PAY-318 login change is the only recent release."
+    "details": "Security monitoring flagged an admin session from an external IP that is not on our admin list. The admin says they did not sign in and their password has not been shared. Several failed sign-ins from the same IP came just before it. Within minutes, two large transfers left the operations account (ACC-1001) for an account we don't recognise. We don't yet know how the attacker got in."
   },
   "expected_cause": "PAY-318 concatenates the username into the SQL query (SQL injection) and uses md5 for passwords, so a crafted username like admin'-- signs in with no password."
 }

@@ -22,7 +22,7 @@ analyses an evidence packet; every claim must cite packet IDs, a deterministic v
 - `Llm/`:
   - `Prompts.cs`: prompts (bump `Prompts.Version` when they change).
   - Providers: `ClaudeProvider`, `GitHubCopilotProvider`, `RecordedProvider`.
-- `ResolveAI.Mcp/CodeServer.cs`: read-only GitHub repo code search (`code_search`/`code_read`/`code_list`); enabled by `code.repo_url` in mcp.config. Test button on the Systems page (`AppService.TestRepoConnection`).
+- `ResolveAI.Mcp/CodeServer.cs`: read-only GitHub repo code and history (`code_search`/`code_read`/`code_list`/`code_history`/`code_diff`); enabled by `code.repo_url` in mcp.config; `code.service` links it to an application, whose investigations then search the code and read recent commits in the baseline. Test button on the Systems page (`AppService.TestRepoConnection`).
   - `MeteredProvider`: token usage per key.
 - `Services/LlmSettings.cs`: Settings-page model and key (key encrypted with Data Protection; table `llm_settings`; usage in `llm_usage`).
 - `Data/Seed.cs`: demo data; `Data/Migrations/NNN_name.sql`: add new files, never edit or rename applied ones (and update `DataTests`).

@@ -14,6 +14,10 @@ public static class CodeServer
     private const long MaxFileBytes = 2 * 1024 * 1024;
     private const int MaxReadLines = 400;
     private const int MaxMatchesPerFile = 4;
+    private const int HistoryDepth = 50;
+    private const int MaxDiffLines = 300;
+    private static readonly TimeSpan RefreshEvery = TimeSpan.FromMinutes(2);
+    private static readonly System.Text.RegularExpressions.Regex CommitId = new("^[0-9a-fA-F]{7,40}$");
 
     private static readonly HashSet<string> SourceExt = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -44,24 +48,49 @@ public static class CodeServer
         var cache = code.CacheDir;
         var branch = string.IsNullOrWhiteSpace(code.Branch) ? null : code.Branch.Trim();
 
+        // One investigation runs several code checks: they share one clone, refreshed at most every two minutes (not on
+        // every call), and two git commands never run on the clone at the same time.
+        var gate = new SemaphoreSlim(1, 1);
+        var refreshedAt = DateTime.MinValue;
+
         async Task<string> EnsureClone(CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(cache))
                 throw new ToolError("No repository is configured. Set code.repo_url in the MCP config.");
-            if (Directory.Exists(Path.Combine(cache, ".git")))
+            await gate.WaitAsync(ct);
+            try
             {
-                try { await git(cache, ["fetch", "--depth", "1", "origin", branch ?? "HEAD"], ct); await git(cache, ["reset", "--hard", "FETCH_HEAD"], ct); }
-                catch (ToolError) { /* keep the copy already cloned if a refresh fails */ }
+                if (Directory.Exists(Path.Combine(cache, ".git")))
+                {
+                    if (DateTime.UtcNow - refreshedAt < RefreshEvery) return cache;
+                    try { await git(cache, ["fetch", "--depth", $"{HistoryDepth}", "origin", branch ?? "HEAD"], ct); await git(cache, ["reset", "--hard", "FETCH_HEAD"], ct); }
+                    catch (ToolError) { /* keep the copy already cloned if a refresh fails */ }
+                    refreshedAt = DateTime.UtcNow;
+                    return cache;
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
+                if (Directory.Exists(cache)) Directory.Delete(cache, recursive: true);
+                // Recent history too, so code_history and code_diff can show which commit changed a file.
+                List<string> cloneArgs = ["clone", "--depth", $"{HistoryDepth}"];
+                if (branch is not null) { cloneArgs.Add("--branch"); cloneArgs.Add(branch); }
+                cloneArgs.Add(url);
+                cloneArgs.Add(cache);
+                await git("", cloneArgs, ct);
+                refreshedAt = DateTime.UtcNow;
                 return cache;
             }
-            Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
-            if (Directory.Exists(cache)) Directory.Delete(cache, recursive: true);
-            List<string> cloneArgs = ["clone", "--depth", "1"];
-            if (branch is not null) { cloneArgs.Add("--branch"); cloneArgs.Add(branch); }
-            cloneArgs.Add(url);
-            cloneArgs.Add(cache);
-            await git("", cloneArgs, ct);
-            return cache;
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        // Read-only git commands on the clone take the same gate, so a refresh never runs underneath them.
+        async Task<string> GitRead(string root, IReadOnlyList<string> args, CancellationToken ct)
+        {
+            await gate.WaitAsync(ct);
+            try { return await git(root, args, ct); }
+            finally { gate.Release(); }
         }
 
         static IEnumerable<string> Walk(string dir, int[] budget)
@@ -178,6 +207,56 @@ public static class CodeServer
                         .Select(f => { long size; try { size = new FileInfo(f).Length; } catch { size = 0; } return Row.Of(("path", Rel(root, f)), ("bytes", size)); })
                         .ToList();
                     return ToolResult.Ok($"{rows.Count} file(s){(sub is null ? "" : $" under {sub}")} in the repository.", rows, sub is null ? "code" : $"code/{sub}");
+                }),
+
+            new ToolDef("code_history",
+                "List the most recent commits in the repository, optionally only those that changed a given file or folder: commit id, date, author and message.",
+                [Field.Str("path", "A file or folder, e.g. src/Auth.php; omit for the whole repository", required: false, max: 300), Field.Int("max_commits", 1, 30, 10)],
+                async (args, ct) =>
+                {
+                    var root = await EnsureClone(ct);
+                    var sub = args.OptStr("path");
+                    List<string> logArgs = ["log", "-n", $"{args.Int("max_commits")}", "--date=iso-strict", "--format=%h%x1f%ad%x1f%an%x1f%s"];
+                    if (!string.IsNullOrWhiteSpace(sub))
+                    {
+                        logArgs.Add("--");
+                        logArgs.Add(Rel(root, Confine(root, sub)));
+                    }
+                    var output = await GitRead(root, logArgs, ct);
+                    var rows = output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(l => l.TrimEnd('\r').Split('\u001f'))
+                        .Where(p => p.Length == 4)
+                        .Select(p => Row.Of(("commit", p[0]), ("date", p[1]), ("author", Limits.Clip(p[2])), ("message", Limits.Clip(p[3]))))
+                        .ToList();
+                    var scope = string.IsNullOrWhiteSpace(sub) ? "" : $" that changed {sub}";
+                    var summary = rows.Count > 0
+                        ? $"{rows.Count} recent commit(s){scope}; newest: {rows[0]["commit"]} \"{rows[0]["message"]}\"."
+                        : $"No commits{scope} in the recent history.";
+                    return ToolResult.Ok(summary, rows, string.IsNullOrWhiteSpace(sub) ? "code/history" : $"code/history/{sub}");
+                }),
+
+            new ToolDef("code_diff",
+                "Show what one commit changed: its message, the files it touched and the patch (up to 300 lines). Use a commit id from code_history.",
+                [Field.Str("commit", "A commit id, 7 to 40 hex characters", min: 7, max: 40)],
+                async (args, ct) =>
+                {
+                    var commit = args.Str("commit").Trim();
+                    // Only a plain commit id reaches git, so the argument can never be read as an option or a revision expression.
+                    if (!CommitId.IsMatch(commit)) throw new ToolError("commit must be a commit id (7 to 40 hex characters).");
+                    var root = await EnsureClone(ct);
+                    string output;
+                    try
+                    {
+                        output = await GitRead(root, ["show", "--date=iso-strict", "--format=%h %ad %an%n%s", "--stat", "--patch", commit], ct);
+                    }
+                    catch (ToolError)
+                    {
+                        throw new ToolError($"Commit {commit} is not in the repository's recent history.");
+                    }
+                    var all = output.Split('\n');
+                    var rows = all.Take(MaxDiffLines).Select((l, i) => Row.Of(("line", i + 1), ("text", Limits.Clip(l.TrimEnd('\r'))))).ToList();
+                    var subject = all.Length > 1 ? all[1].Trim() : "";
+                    return ToolResult.Ok($"Commit {commit}: \"{Limits.Clip(subject)}\" ({rows.Count} of {all.Length} lines).", rows, $"code/commit/{commit}", truncated: all.Length > MaxDiffLines);
                 }),
         ])
         { CallTimeout = TimeSpan.FromSeconds(30) };

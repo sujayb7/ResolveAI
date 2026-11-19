@@ -116,6 +116,14 @@
             {
               "name": "code_list",
               "description": "List files in the repository, optionally under a sub-folder, so you can see the code layout."
+            },
+            {
+              "name": "code_history",
+              "description": "List the most recent commits in the repository, optionally only those that changed a given file or folder: commit id, date, author and message."
+            },
+            {
+              "name": "code_diff",
+              "description": "Show what one commit changed: its message, the files it touched and the patch (up to 300 lines). Use a commit id from code_history."
             }
           ],
           "checked_at": "<now>"

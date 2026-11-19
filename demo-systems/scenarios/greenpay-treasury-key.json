@@ -59,8 +59,8 @@
     "application": "greenpay",
     "environment": "production",
     "severity": "SEV-2",
-    "impact": "The balance API returned the treasury account balance to an external caller that supplied key=0.",
-    "details": "The balance API compares the supplied key against the stored api_key with a loose comparison. The treasury api_key was generated with md5 and begins with 0e, so a caller passing key=0 is treated as equal. There was no deployment; this looks like a long-standing flaw in the comparison."
+    "impact": "The treasury account balance was returned to an unknown external caller.",
+    "details": "An external caller read the treasury settlement account (ACC-9000) balance through the balance API several times. The caller never signed in, and the treasury reconciliation job is the only client that holds a key for that account. The job's key has not been rotated or shared. We don't know how the caller was authorised."
   },
   "expected_cause": "balance.php compares the api_key with != (loose compare); the treasury key is an 0e magic hash, so key=0 equals it. Use hash_equals and a random key."
 }

@@ -143,9 +143,9 @@ Each system ResolveAI investigates has its own **read-only MCP server**, all in 
 | Files & logs | `ResolveAI.Mcp files` (`FilesServer.cs`) | `files_search`, `files_tail`, `files_recent_changes`, `files_disk_space`, `files_check` |
 | Deploys & Git | `ResolveAI.Mcp deploys` (`DeploysServer.cs`) | `deploys_recent`, `deploys_change_summary` |
 | Metrics & host | `ResolveAI.Mcp metrics` (`MetricsServer.cs`) | `metrics_series`, `metrics_list`, `metrics_host` |
-| GitHub repository | `ResolveAI.Mcp code` (`CodeServer.cs`) | `code_search`, `code_read`, `code_list` |
+| GitHub repository | `ResolveAI.Mcp code` (`CodeServer.cs`) | `code_search`, `code_read`, `code_list`, `code_history`, `code_diff` |
 
-The **GitHub repository** source reads a public repo's current code (read-only), so a finding can cite the exact lines that caused an incident. Set `code.repo_url` in `mcp.config.json` (there is a Test connection button on the **Systems** page). It shallow-clones into `data/code-cache` on first use.
+The **GitHub repository** source reads a public repo's current code (read-only), and its recent commit history, so a finding can cite the exact lines and the commit that caused an incident. Set `code.repo_url` in `mcp.config.json` (there is a Test connection button on the **Systems** page). It clones the last 50 commits into `data/code-cache` on first use and refreshes at most every two minutes.
 
 **How an investigation uses them**
 1. **Baseline checks.** ResolveAI always runs the same checks for the incident's service and time window: errors and warnings in its log folders, recent deploys, its key metrics, and (if it has a database) health, blocking, errors and deadlocks.

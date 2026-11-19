@@ -64,6 +64,9 @@ public static class Baseline
             {
                 Add("code_search", new() { ["phrase"] = term, ["max_matches"] = 12L });
             }
+            // The real commit history from GitHub, so a change can be tied to the commit that made it even when no
+            // deploy record exists (and so the ticket doesn't have to name the change).
+            Add("code_history", new() { ["max_commits"] = 10L });
         }
         return calls;
     }
