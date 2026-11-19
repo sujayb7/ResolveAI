@@ -13,6 +13,20 @@ public static class CodeServer
     private const int MaxFilesScanned = 4000;
     private const long MaxFileBytes = 2 * 1024 * 1024;
     private const int MaxReadLines = 400;
+    private const int MaxMatchesPerFile = 4;
+
+    private static readonly HashSet<string> SourceExt = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".php", ".cs", ".js", ".ts", ".tsx", ".jsx", ".py", ".java", ".go", ".rb", ".rs", ".kt", ".swift", ".c", ".cpp", ".h", ".sql", ".razor", ".vue",
+    };
+
+    /// <summary>0 = source code, 1 = other text (config, scripts), 2 = documentation.</summary>
+    private static int Priority(string rel)
+    {
+        var ext = Path.GetExtension(rel);
+        if (rel.StartsWith("docs/", StringComparison.OrdinalIgnoreCase) || ext is ".md" or ".txt" or ".rst") return 2;
+        return SourceExt.Contains(ext) ? 0 : 1;
+    }
     private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(25);
 
     private static readonly HashSet<string> SkipDirs = new(StringComparer.OrdinalIgnoreCase) { ".git", "node_modules", "vendor", "dist", "bin", "obj", ".vs" };
@@ -107,18 +121,22 @@ public static class CodeServer
                     var budget = new[] { MaxFilesScanned };
                     var rows = new List<Dictionary<string, object?>>();
                     var scanned = 0;
-                    foreach (var file in Walk(start, budget))
+                    // Source code first, then other text, docs last; and a few matches per file, so one file (or a README)
+                    // can't use up the whole budget before the code that matters is reached.
+                    var files = Walk(start, budget).Where(Searchable).OrderBy(f => Priority(Rel(root, f))).ThenBy(f => f, StringComparer.Ordinal).ToList();
+                    foreach (var file in files)
                     {
                         if (rows.Count >= max) break;
-                        if (!Searchable(file)) continue;
                         scanned++;
                         string[] lines;
                         try { lines = await File.ReadAllLinesAsync(file, ct); }
                         catch { continue; }
-                        for (var i = 0; i < lines.Length && rows.Count < max; i++)
+                        var inFile = 0;
+                        for (var i = 0; i < lines.Length && rows.Count < max && inFile < MaxMatchesPerFile; i++)
                         {
-                            if (lines[i].Contains(phrase, StringComparison.OrdinalIgnoreCase))
-                                rows.Add(Row.Of(("file", Rel(root, file)), ("line", i + 1), ("text", Limits.Clip(lines[i].Trim()))));
+                            if (!lines[i].Contains(phrase, StringComparison.OrdinalIgnoreCase)) continue;
+                            rows.Add(Row.Of(("file", Rel(root, file)), ("line", i + 1), ("text", Limits.Clip(lines[i].Trim()))));
+                            inFile++;
                         }
                     }
                     var summary = rows.Count > 0

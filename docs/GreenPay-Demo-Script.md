@@ -12,9 +12,15 @@ python3 demo-systems/live-demo.py setup     # maps a "greenpay" service and link
 
 `setup` writes `mcp.config.json` with a `greenpay` service (logs) and `code.service: greenpay` (so an investigation of greenpay also searches the repo's code). The GitHub repo is `https://github.com/sujayb7/PHP_GreenPay.git` (must be public).
 
+## How ResolveAI knows to check the GitHub code
+
+`mcp.config.json` links the repository to an application: `code.service: greenpay`. When you create an incident with **Application name = greenpay**, the investigation automatically searches the repository's code (source files first, docs last) for words from the title and details, and cites the matching lines. You can see the link on the **Systems** page, and the **Investigate incident** form shows a hint as soon as you type `greenpay`.
+
+**`inject` is optional.** The code check needs no setup per demo. `inject` only adds fresh, timestamped logs, a deploy and metrics, so the investigation also has runtime evidence (who attacked, when, what moved). Without it, ResolveAI still finds the bug from the code.
+
 ## Running one incident
 
-Just before you present the incident, stage fresh, timestamped evidence:
+Optional, for richer evidence: just before you present, stage fresh, timestamped logs:
 
 ```bash
 python3 demo-systems/live-demo.py inject greenpay-login-bypass    # or greenpay-treasury-key

@@ -75,17 +75,22 @@ public static class Baseline
         "not", "but", "all", "any", "our", "out", "new", "old", "now", "via", "per", "its", "started", "suddenly", "getting",
     };
 
-    /// <summary>Salient words from the incident's title and question, used to search the service's code. Up to four, longest first.</summary>
+    /// <summary>
+    /// Words from the incident's title and details to search the code for. Code-like words come first
+    /// (password_verify, md5, $sql, camelCase), then longer words, because they are the ones that appear in source. Up to six.
+    /// </summary>
     private static IEnumerable<string> CodeSearchTerms(Incident incident)
     {
         var text = $"{incident.Title} {incident.Description}";
-        var words = System.Text.RegularExpressions.Regex.Matches(text, "[A-Za-z][A-Za-z0-9_]{3,}")
+        static bool CodeLike(string w) => w.Contains('_') || w.Any(char.IsDigit) || w.Skip(1).Any(char.IsUpper);
+        var words = System.Text.RegularExpressions.Regex.Matches(text, "[A-Za-z][A-Za-z0-9_]{2,}")
             .Select(m => m.Value)
-            .Where(w => !StopWords.Contains(w))
+            .Where(w => !StopWords.Contains(w) && (w.Length >= 4 || CodeLike(w)))
             .GroupBy(w => w.ToLowerInvariant())
             .Select(g => g.First())
-            .OrderByDescending(w => w.Length)
-            .Take(5)
+            .OrderByDescending(CodeLike)
+            .ThenByDescending(w => w.Length)
+            .Take(6)
             .ToList();
         return words.Count > 0 ? words : [incident.ServiceName];
     }

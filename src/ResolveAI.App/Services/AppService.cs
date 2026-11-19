@@ -508,6 +508,9 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
     /// <summary>The repository URL ResolveAI's code search reads, from the MCP config. Null when no repo is configured.</summary>
     public string? CodeRepoUrl => systems?.Config.Code.RepoUrl;
 
+    /// <summary>The service whose code the repo holds; investigations of this service also search the code. Null = not linked.</summary>
+    public string? CodeService => systems?.Config.Code.Service;
+
     /// <summary>Checks that a git repository is reachable (git ls-remote), without cloning it. A read-only probe.</summary>
     public async Task<RepoTestResult> TestRepoConnection(string? url, Caller caller)
     {

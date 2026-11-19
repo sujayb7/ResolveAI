@@ -21,7 +21,7 @@
             </label>
             <label class="space-y-1 text-sm font-medium text-slate-700">
                 Application name <span class="font-normal text-slate-500">(optional)</span>
-                <input @bind="_application" maxlength="100" placeholder="payment-api" list="known-services" class="w-full rounded-md border border-slate-300 px-3 py-2 font-normal" />
+                <input @bind="_application" @bind:event="oninput" maxlength="100" placeholder="payment-api" list="known-services" data-testid="app-name" class="w-full rounded-md border border-slate-300 px-3 py-2 font-normal" />
                 <datalist id="known-services">
                     @foreach (var s in _services)
                     {
@@ -29,6 +29,13 @@
                     }
                 </datalist>
                 <span class="block text-xs font-normal text-slate-500">Pick a known service so logs, deploys and metrics can be matched.</span>
+                @if (ChecksCode)
+                {
+                    <span class="mt-1 flex items-start gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-xs font-normal text-slate-700" data-testid="code-hint">
+                        <SystemIcon System="code" Class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>The investigation will also search the GitHub code in <span class="font-mono">@RepoName</span> and cite the matching lines.</span>
+                    </span>
+                }
             </label>
             <label class="space-y-1 text-sm font-medium text-slate-700">
                 Environment
@@ -85,7 +92,16 @@
     {
         _config = Service.Config();
         _services = Service.ListIncidents(null, null, null, null, null, 1, 1).Services;
+        _codeService = Service.CodeService;
+        _codeRepo = Service.CodeRepoUrl;
+        // The linked application may have no incidents yet; offer it in the list anyway.
+        if (!string.IsNullOrWhiteSpace(_codeService) && !_services.Contains(_codeService)) _services = [.. _services, _codeService];
     }
+
+    private string? _codeService;
+    private string? _codeRepo;
+    private bool ChecksCode => !string.IsNullOrWhiteSpace(_codeService) && string.Equals(_application.Trim(), _codeService, StringComparison.OrdinalIgnoreCase);
+    private string RepoName => _codeRepo is null ? "" : _codeRepo.TrimEnd('/').Split('/').Last().Replace(".git", "");
 
     private void Submit()
     {
