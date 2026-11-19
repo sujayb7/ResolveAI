@@ -14,6 +14,8 @@ public static class ServerDefs
         new("deploys", "deploys", "Deploys & Git", c => !string.IsNullOrEmpty(c.Deploys.Feed) || c.Services.Values.Any(s => !string.IsNullOrEmpty(s.Repo)),
             "No deploy feed or git repo configured.", DeploysServer.Build),
         new("metrics", "metrics", "Metrics & host", _ => true, "", MetricsServer.Build),
+        new("code", "code", "GitHub repository", c => !string.IsNullOrWhiteSpace(c.Code.RepoUrl),
+            "No repository configured. Set code.repo_url in mcp.config.json (or on the Systems page).", CodeServer.Build),
     ];
 
     public static ServerDef? Find(string server) => All.FirstOrDefault(d => d.Server == server);

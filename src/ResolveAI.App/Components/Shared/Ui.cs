@@ -171,7 +171,7 @@ public static class Ui
 /// </summary>
 public sealed record SystemStyle(string Label, string Blurb, string Tile, string Soft, string Text, string Chip, string Dot, string Ring, string Bar, string Accent, string Hollow)
 {
-    public static readonly IReadOnlyList<string> Order = ["database", "files", "deploys", "metrics"];
+    public static readonly IReadOnlyList<string> Order = ["database", "files", "deploys", "metrics", "code"];
 
     private static readonly Dictionary<string, SystemStyle> All = new()
     {
@@ -187,6 +187,9 @@ public sealed record SystemStyle(string Label, string Blurb, string Tile, string
         ["metrics"] = new("Metrics & host", "A metric's baseline, peak and timing for a service, and the host's CPU and memory right now.",
             "tile-green gloss text-white", "bg-emerald-100", "text-emerald-700", "bg-emerald-100 text-emerald-700", "bg-emerald-500", "ring-emerald-200",
             "bg-gradient-to-r from-emerald-400 to-teal-500", "border-l-emerald-500", "bg-surface ring-2 ring-emerald-500"),
+        ["code"] = new("GitHub repository", "Search the service's source code and read a file, so a finding can point at the exact lines that caused the incident.",
+            "tile-slate gloss text-white", "bg-slate-100", "text-slate-700", "bg-slate-100 text-slate-700", "bg-slate-500", "ring-slate-200",
+            "bg-gradient-to-r from-slate-500 to-slate-700", "border-l-slate-500", "bg-surface ring-2 ring-slate-500"),
     };
 
     public static SystemStyle Of(string system) => All.GetValueOrDefault(system) ?? All["files"];

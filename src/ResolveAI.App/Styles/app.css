@@ -363,6 +363,7 @@ main :is(section, article, header, div, li, details).bg-surface:not(.bg-surface 
 .tile-violet { background-image: linear-gradient(145deg, #7468f7, #5649f0); --tile-glow: rgb(86 73 240 / 0.45); }
 .tile-blue { background-image: linear-gradient(145deg, #5f9ffc, #2f78f0); --tile-glow: rgb(64 137 251 / 0.45); }
 .tile-sky { background-image: linear-gradient(145deg, #4cc3ff, #1a8fe0); --tile-glow: rgb(30 155 235 / 0.42); }
+.tile-slate { background-image: linear-gradient(145deg, #7c8a9c, #475569); --tile-glow: rgb(71 85 105 / 0.42); }
 .tile-green { background-image: linear-gradient(145deg, #34d6a0, #0ea678); --tile-glow: rgb(20 184 134 / 0.42); }
 .tile-red { background-image: linear-gradient(145deg, #ff6b5e, #dc2f25); --tile-glow: rgb(229 52 42 / 0.45); }
 .tile-orange { background-image: linear-gradient(145deg, #ff9147, #ea6410); --tile-glow: rgb(240 112 26 / 0.42); }

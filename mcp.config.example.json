@@ -1,33 +1,69 @@
 {
   "services": {
     "payment-api": {
-      "log_roots": ["demo-systems/logs/payment-api"],
-      "key_metrics": ["HTTP 500 rate", "DB pool connections in use"]
+      "log_roots": [
+        "demo-systems/logs/payment-api"
+      ],
+      "key_metrics": [
+        "HTTP 500 rate",
+        "DB pool connections in use"
+      ]
     },
-    "search-api": { "log_roots": ["demo-systems/logs/search-api"] },
+    "search-api": {
+      "log_roots": [
+        "demo-systems/logs/search-api"
+      ]
+    },
     "notification-service": {
-      "log_roots": ["demo-systems/logs/notification-service"],
-      "key_metrics": ["Email queue depth"]
+      "log_roots": [
+        "demo-systems/logs/notification-service"
+      ],
+      "key_metrics": [
+        "Email queue depth"
+      ]
     },
     "checkout-web": {},
     "document-service": {
-      "log_roots": ["demo-systems/logs/document-service"],
-      "key_metrics": ["Upload error rate", "Retry queue depth"]
+      "log_roots": [
+        "demo-systems/logs/document-service"
+      ],
+      "key_metrics": [
+        "Upload error rate",
+        "Retry queue depth"
+      ]
     },
     "order-api": {
-      "log_roots": ["demo-systems/logs/order-api"],
+      "log_roots": [
+        "demo-systems/logs/order-api"
+      ],
       "database": "ResolveAIDemo",
-      "key_metrics": ["Order failures", "DB request p95"]
+      "key_metrics": [
+        "Order failures",
+        "DB request p95"
+      ]
     }
   },
-  "files": { "allowed_roots": ["demo-systems/logs"] },
-  "deploys": { "feed": "demo-systems/deploys.json" },
-  "metrics": { "series_dir": "demo-systems/metrics" },
+  "files": {
+    "allowed_roots": [
+      "demo-systems/logs"
+    ]
+  },
+  "deploys": {
+    "feed": "demo-systems/deploys.json"
+  },
+  "metrics": {
+    "series_dir": "demo-systems/metrics"
+  },
   "sqlserver": {
     "enabled": false,
     "server": "localhost",
     "driver": "msnodesqlv8",
     "execute_as": "resolveai_reader",
     "trust_server_certificate": true
+  },
+  "code": {
+    "repo_url": "https://github.com/sujayb7/PHP_GreenPay.git",
+    "branch": "",
+    "cache_dir": "data/code-cache"
   }
 }

@@ -97,6 +97,17 @@ public sealed class MetricsConfig
     public string? SeriesDir { get; set; }
 }
 
+/// <summary>A GitHub (or any git) repository whose current code ResolveAI can search and read, read-only.</summary>
+public sealed class CodeConfig
+{
+    /// <summary>HTTPS URL of a public git repository, e.g. https://github.com/owner/name.git. Empty turns the code system off.</summary>
+    public string? RepoUrl { get; set; }
+    /// <summary>Branch to check out; empty uses the repository's default branch.</summary>
+    public string? Branch { get; set; }
+    /// <summary>Where the shallow clone is kept. Defaults to data/code-cache beside the config file.</summary>
+    public string? CacheDir { get; set; }
+}
+
 public sealed class SqlServerConfig
 {
     public bool Enabled { get; set; }
@@ -116,6 +127,7 @@ public sealed partial class McpConfig
     public DeploysConfig Deploys { get; set; } = new();
     public MetricsConfig Metrics { get; set; } = new();
     public SqlServerConfig Sqlserver { get; set; } = new();
+    public CodeConfig Code { get; set; } = new();
 
     // \z, not $: in .NET, $ also matches before a trailing newline. This value is written into SQL text.
     [GeneratedRegex(@"\A[A-Za-z0-9_.-]+\z")]
@@ -163,6 +175,11 @@ public sealed partial class McpConfig
         cfg.Files.AllowedRoots = cfg.Files.AllowedRoots.Select(Abs).ToList();
         if (!string.IsNullOrEmpty(cfg.Deploys.Feed)) cfg.Deploys.Feed = Abs(cfg.Deploys.Feed);
         if (!string.IsNullOrEmpty(cfg.Metrics.SeriesDir)) cfg.Metrics.SeriesDir = Abs(cfg.Metrics.SeriesDir);
+        if (!string.IsNullOrWhiteSpace(cfg.Code.RepoUrl))
+        {
+            cfg.Code.RepoUrl = cfg.Code.RepoUrl.Trim();
+            cfg.Code.CacheDir = Abs(string.IsNullOrWhiteSpace(cfg.Code.CacheDir) ? "data/code-cache" : cfg.Code.CacheDir);
+        }
         return cfg;
     }
 }
