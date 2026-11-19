@@ -97,6 +97,28 @@
             }
           ],
           "checked_at": "<now>"
+        },
+        {
+          "system": "code",
+          "server": "code",
+          "label": "GitHub repository",
+          "status": "connected",
+          "detail": null,
+          "tools": [
+            {
+              "name": "code_search",
+              "description": "Search the repository's current code for a phrase (case-insensitive substring). Returns matching file, line number and line text. Optionally limit to paths under a sub-folder."
+            },
+            {
+              "name": "code_read",
+              "description": "Read a file from the repository by its path, with line numbers. Returns up to 400 lines from the given start line."
+            },
+            {
+              "name": "code_list",
+              "description": "List files in the repository, optionally under a sub-folder, so you can see the code layout."
+            }
+          ],
+          "checked_at": "<now>"
         }
       ],
       "enabled": true

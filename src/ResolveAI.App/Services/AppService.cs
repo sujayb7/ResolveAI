@@ -22,6 +22,9 @@ public sealed record Caller(string? AccessCode, bool IsLocal);
 /// <summary>Teams notifications as the Settings page shows them: On = switched on; Configured = a webhook URL exists.</summary>
 public sealed record TeamsStatus(bool On, bool Configured, string? UrlHint, string Source, bool HasDefault);
 
+/// <summary>The outcome of Systems → GitHub repository → Test connection.</summary>
+public sealed record RepoTestResult(bool Ok, string Message, int Branches);
+
 /// <summary>
 /// Everything the app does. The HTTP routes and the Blazor components both call this, so the access code, the daily live
 /// limit, input limits and ownership checks can't be bypassed from either side.
@@ -498,6 +501,55 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
         if (notifier is null) return;
         llmStore?.SaveTeams(null, notifier.On);
         notifier.Configure(settings.TeamsWebhookUrl, notifier.On);
+    }
+
+    // Settings / Systems → GitHub repository
+
+    /// <summary>The repository URL ResolveAI's code search reads, from the MCP config. Null when no repo is configured.</summary>
+    public string? CodeRepoUrl => systems?.Config.Code.RepoUrl;
+
+    /// <summary>Checks that a git repository is reachable (git ls-remote), without cloning it. A read-only probe.</summary>
+    public async Task<RepoTestResult> TestRepoConnection(string? url, Caller caller)
+    {
+        RequireAdmin(caller);
+        var target = (string.IsNullOrWhiteSpace(url) ? CodeRepoUrl : url.Trim()) ?? throw new AppError(400, "Enter a repository URL.");
+        if (target.Length > 400 || !Uri.TryCreate(target, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            throw new AppError(400, "Invalid request: the repository must be an https:// git URL.");
+        try
+        {
+            var heads = await Investigations.WithTimeout(ct => GitLsRemote(target, ct), TimeSpan.FromSeconds(25), "The repository did not answer within 25 seconds.");
+            if (heads.Count == 0) throw new AppError(502, "Connected, but the repository reports no branches. Check the URL.");
+            return new RepoTestResult(true, $"Reachable: {heads.Count} branch(es) found.", heads.Count);
+        }
+        catch (AppError)
+        {
+            throw;
+        }
+        catch (Exception err)
+        {
+            throw new AppError(502, $"Could not reach the repository. {(err is OperationCanceledException ? "It timed out." : "Check the URL and that it is public.")}");
+        }
+    }
+
+    private static async Task<List<string>> GitLsRemote(string url, CancellationToken ct)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("git")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+        };
+        start.Environment["GIT_TERMINAL_PROMPT"] = "0";
+        foreach (var a in new[] { "-c", "credential.helper=", "ls-remote", "--heads", url }) start.ArgumentList.Add(a);
+        using var process = System.Diagnostics.Process.Start(start) ?? throw new InvalidOperationException("Could not start git.");
+        process.StandardInput.Close();
+        var stdout = await process.StandardOutput.ReadToEndAsync(ct);
+        var stderr = process.StandardError.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+        if (process.ExitCode != 0) throw new InvalidOperationException((await stderr).Trim());
+        return stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToList();
     }
 
     public void DemoReset(Caller caller)

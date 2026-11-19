@@ -86,7 +86,7 @@ public class HubTests
         // Compared with the details included, so a failure to start says why.
         var statuses = hub.Status().Select(s => s.Status == "connected" || s.Status == "disabled" ? s.Status : $"{s.Status}: {s.Detail}").ToList();
         var joined = string.Join(", ", statuses);
-        Assert.True(joined == "disabled, connected, connected, connected", joined);
+        Assert.True(joined == "disabled, connected, connected, connected, connected", joined);
         Assert.Contains("setup.sql", hub.Status()[0].Detail);
         var r = await hub.Call("files_search", new Dictionary<string, object?> { ["root"] = "payment-api", ["phrase"] = "pool exhausted" });
         Assert.True(r.Ok, r.Summary);
