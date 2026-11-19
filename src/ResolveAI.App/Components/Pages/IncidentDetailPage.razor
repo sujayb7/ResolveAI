@@ -149,7 +149,8 @@ else if (_detail is not null)
                     <DeploymentsTab Evidence="_evidence" Focus="@_focus" />
                     break;
                 case "findings":
-                    <Findings Inv="_inv" Evidence="_evidence" OnEvidence="ShowEvidence" OnRun="Start" OnOpenRca="@(() => SetTab("rca"))" OnChanged="ReloadInvestigation" />
+                    <Findings Inv="_inv" Evidence="_evidence" OnEvidence="ShowEvidence" OnRun="Start" OnOpenRca="@(() => SetTab("rca"))" OnChanged="ReloadInvestigation"
+                              IncidentStatus="@_detail?.Incident.Status" OnMitigate="Mitigate" />
                     break;
                 case "systems":
                     <ToolResultsTab Inv="_inv" Focus="@_focus" />
@@ -262,6 +263,12 @@ else if (_detail is not null)
         var id = InvestigationId;
         _inv = id is null ? null : Service.Investigation(id);
         if (Running) StartPolling();
+    }
+
+    private void Mitigate()
+    {
+        Service.MitigateIncident(Id, new Caller(Codes.Current, IsLocal));
+        ReloadDetail();
     }
 
     private void StartPolling() => _poll ??= new Timer(_ => InvokeAsync(Poll), null, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(500));

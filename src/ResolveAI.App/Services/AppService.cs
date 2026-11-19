@@ -234,6 +234,18 @@ public sealed class AppService(Db db, Providers providers, Systems? systems, App
 
     public RcaDraft GetRca(string id) => Rca.Get(db, id) ?? throw new AppError(404, "RCA draft not found");
 
+    /// <summary>
+    /// Marks an incident as mitigated. Offered when an investigation finds no relevant evidence to work from, so the
+    /// engineer can record that it is contained without a confirmed root cause. A closed (resolved) incident is left alone.
+    /// </summary>
+    public Incident MitigateIncident(string idOrKey, Caller caller)
+    {
+        var incident = IncidentOr404(idOrKey);
+        if (incident.Status == "resolved") throw new AppError(409, "This incident is already closed.");
+        if (incident.Status != "mitigated") db.Run("UPDATE incidents SET status = 'mitigated' WHERE id = @id", new { id = incident.Id });
+        return IncidentOr404(incident.Id);
+    }
+
     public RcaDraft PatchRca(string id, PatchRcaBody patch)
     {
         static void Text(string name, string? value, int max)

@@ -103,6 +103,9 @@ public static class ApiEndpoints
             return JsonResult(new { id = s.AddFeedback(id, body) }, 201);
         });
 
+        api.MapPost("/incidents/{id}/mitigate", ([FromServices] AppService s, string id, HttpContext http) =>
+            JsonResult(new { incident = s.MitigateIncident(id, CallerOf(http)) }));
+
         api.MapPost("/incidents/{id}/rca-drafts", async ([FromServices] AppService s, string id, HttpContext http) =>
         {
             s.IncidentDetail(id);

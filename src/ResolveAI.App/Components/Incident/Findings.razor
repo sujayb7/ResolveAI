@@ -55,6 +55,37 @@ else
                         @(_showGuesses ? "Hide the AI's unsupported guesses" : $"Show the AI's unsupported guesses anyway ({Inv.Hypotheses.Count})")
                     </button>
                 }
+
+                @* With nothing to investigate, let the engineer record that the incident is contained without a confirmed cause. *@
+                <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-amber-200 pt-3" data-testid="mitigate-bar">
+                    @if (string.Equals(IncidentStatus, "mitigated", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <span class="inline-flex items-center gap-1.5 text-sm font-medium text-amber-900">
+                            <StatusDot Status="mitigated" /> Marked as mitigated.
+                        </span>
+                    }
+                    else if (_confirmMitigate)
+                    {
+                        <span class="text-sm">Mark this incident as mitigated without a confirmed cause?</span>
+                        <Btn Variant="primary" OnClick="DoMitigate" Disabled="@_mitigating" data-testid="mitigate-confirm">
+                            @if (_mitigating)
+                            {
+                                <Spinner Class="h-3.5 w-3.5" />
+                            }
+                            Yes, mark mitigated
+                        </Btn>
+                        <Btn Variant="ghost" OnClick="() => _confirmMitigate = false" Disabled="@_mitigating">Cancel</Btn>
+                    }
+                    else
+                    {
+                        <Btn Variant="secondary" OnClick="() => _confirmMitigate = true" data-testid="mitigate">Mark as mitigated</Btn>
+                        <span class="text-xs text-amber-800">Records that the incident is contained, so it leaves the review queue.</span>
+                    }
+                </div>
+                @if (_mitigateError is not null)
+                {
+                    <p class="mt-2 text-xs text-red-700" data-testid="mitigate-error">@_mitigateError</p>
+                }
             </div>
         }
         else
@@ -137,9 +168,35 @@ else
     [Parameter] public EventCallback OnRun { get; set; }
     [Parameter] public EventCallback OnOpenRca { get; set; }
     [Parameter] public EventCallback OnChanged { get; set; }
+    /// <summary>The incident's current status, so the mitigate action can show its state.</summary>
+    [Parameter] public string? IncidentStatus { get; set; }
+    /// <summary>Marks the incident as mitigated (offered when there is no evidence to investigate).</summary>
+    [Parameter] public EventCallback OnMitigate { get; set; }
 
     private bool _showGuesses;
     private string? _shownFor;
+    private bool _confirmMitigate;
+    private bool _mitigating;
+    private string? _mitigateError;
+
+    private async Task DoMitigate()
+    {
+        _mitigating = true;
+        _mitigateError = null;
+        try
+        {
+            await OnMitigate.InvokeAsync();
+            _confirmMitigate = false;
+        }
+        catch (Exception err)
+        {
+            _mitigateError = Ui.Message(err);
+        }
+        finally
+        {
+            _mitigating = false;
+        }
+    }
 
     private bool Insufficient => Inv is not null && (Inv.InsufficientEvidence || Inv.Hypotheses.Count == 0);
 
