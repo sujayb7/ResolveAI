@@ -1,0 +1,95 @@
+{
+  "id": "greenpay-login-bypass",
+  "summary": "GreenPay admin sign-in succeeds with a crafted username and no valid password; funds then leave the operations account.",
+  "service": "greenpay",
+  "uses_code": true,
+  "key_metrics": [
+    "Failed logins",
+    "Admin logins"
+  ],
+  "deploy": {
+    "minutes_ago": 40,
+    "version": "v1.4.0",
+    "commit": "7a4c318",
+    "author": "dev-payments",
+    "change_summary": "PAY-318 hotfix: single-query login to cut p95 latency",
+    "files_changed": [
+      {
+        "path": "src/Auth.php",
+        "added": 8,
+        "removed": 9
+      },
+      {
+        "path": "scripts/init_db.php",
+        "added": 1,
+        "removed": 1
+      }
+    ],
+    "patch": "--- a/src/Auth.php\n+++ b/src/Auth.php\n-        $stmt = $db->prepare(\"SELECT ... WHERE username = :u AND status = 'active'\");\n-        if (!$user || !password_verify($password, $user['password_hash'])) return null;\n+        $hash = md5($password);\n+        $sql = \"SELECT id, username, full_name, role FROM users WHERE username = '$username' AND password_hash = '$hash' AND status = 'active'\";\n+        $user = $db->query($sql)->fetch();\n"
+  },
+  "logs": [
+    [
+      22,
+      "WARN",
+      "login failed username=admin ip=203.0.113.47"
+    ],
+    [
+      21,
+      "WARN",
+      "login failed username=\"admin' OR 1=1 --\" ip=203.0.113.47"
+    ],
+    [
+      20,
+      "ERROR",
+      "PDOException: SQLSTATE[HY000]: near \"--\": syntax error in src/Auth.php:19 path=/login.php ip=203.0.113.47"
+    ],
+    [
+      18,
+      "INFO",
+      "login ok user=admin user_id=1 input=\"admin'--\" ip=203.0.113.47"
+    ],
+    [
+      16,
+      "INFO",
+      "transfer ok from=ACC-1001 to=ACC-7788 amount=90000 user_id=1 ip=203.0.113.47"
+    ],
+    [
+      14,
+      "INFO",
+      "transfer ok from=ACC-1001 to=ACC-7788 amount=85000 user_id=1 ip=203.0.113.47"
+    ],
+    [
+      12,
+      "WARN",
+      "transfer rejected from=ACC-1001 to=ACC-7788 amount=90000 user_id=1"
+    ],
+    [
+      4,
+      "INFO",
+      "login ok user=alice user_id=2 input=alice ip=198.51.100.9"
+    ]
+  ],
+  "metrics": {
+    "Failed logins": [
+      "per min",
+      1,
+      34,
+      21
+    ],
+    "Admin logins": [
+      "per min",
+      0,
+      6,
+      19
+    ]
+  },
+  "form": {
+    "title": "Admin account signed in without the correct password",
+    "application": "greenpay",
+    "environment": "production",
+    "severity": "SEV-1",
+    "impact": "An attacker signed in as admin and moved about $175,000 out of the operations account.",
+    "details": "An admin session was created from an external IP using a crafted username value and no valid password. The login query appears to be built from the username, and the password is hashed with md5 rather than verified with password_verify. Large transfers left the operations account moments later. The afternoon PAY-318 login change is the only recent release."
+  },
+  "expected_cause": "PAY-318 concatenates the username into the SQL query (SQL injection) and uses md5 for passwords, so a crafted username like admin'-- signs in with no password."
+}

@@ -1,0 +1,66 @@
+{
+  "id": "greenpay-treasury-key",
+  "summary": "GreenPay balance API returns the treasury account to an unauthenticated caller using key=0 (PHP type-juggling magic hash).",
+  "service": "greenpay",
+  "uses_code": true,
+  "key_metrics": [
+    "Balance API 403s",
+    "Treasury reads"
+  ],
+  "deploy": null,
+  "logs": [
+    [
+      24,
+      "INFO",
+      "balance api ok account=ACC-2001 owner=alice ip=198.51.100.9"
+    ],
+    [
+      20,
+      "WARN",
+      "balance api denied account=ACC-9000 ip=203.0.113.47"
+    ],
+    [
+      18,
+      "INFO",
+      "balance api ok account=ACC-9000 owner=treasury ip=203.0.113.47"
+    ],
+    [
+      14,
+      "INFO",
+      "balance api ok account=ACC-9000 owner=treasury ip=203.0.113.47"
+    ],
+    [
+      8,
+      "INFO",
+      "balance api ok account=ACC-9000 owner=treasury ip=203.0.113.47"
+    ],
+    [
+      3,
+      "INFO",
+      "balance api ok account=ACC-9000 owner=treasury ip=203.0.113.47"
+    ]
+  ],
+  "metrics": {
+    "Balance API 403s": [
+      "per min",
+      0,
+      9,
+      21
+    ],
+    "Treasury reads": [
+      "per min",
+      0,
+      5,
+      19
+    ]
+  },
+  "form": {
+    "title": "Treasury balance exposed through the balance API without a valid key",
+    "application": "greenpay",
+    "environment": "production",
+    "severity": "SEV-2",
+    "impact": "The balance API returned the treasury account balance to an external caller that supplied key=0.",
+    "details": "The balance API compares the supplied key against the stored api_key with a loose comparison. The treasury api_key was generated with md5 and begins with 0e, so a caller passing key=0 is treated as equal. There was no deployment; this looks like a long-standing flaw in the comparison."
+  },
+  "expected_cause": "balance.php compares the api_key with != (loose compare); the treasury key is an 0e magic hash, so key=0 equals it. Use hash_equals and a random key."
+}

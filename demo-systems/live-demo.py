@@ -67,6 +67,10 @@ def setup():
         roots.append("demo-systems/live/logs")
     cfg.setdefault("deploys", {})["feed"] = "demo-systems/live/deploys.json"
     cfg.setdefault("metrics", {})["series_dir"] = "demo-systems/live/metrics"
+    # Link the code repo to the service whose scenario reads it, so an investigation of that service also searches its code.
+    code_service = next((s["service"] for s in all_.values() if s.get("uses_code")), None)
+    if code_service and cfg.get("code", {}).get("repo_url"):
+        cfg["code"]["service"] = code_service
     write(CONFIG, json.dumps(cfg, indent=2) + "\n")
 
     # Start from the committed demo data so the seeded incidents keep working.

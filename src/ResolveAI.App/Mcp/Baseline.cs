@@ -55,6 +55,38 @@ public static class Baseline
         // Deploys in the 23 hours before the incident window closes (tools cap a window at 24 hours).
         Add("deploys_recent", new() { ["service"] = incident.ServiceName, ["from"] = Js.IsoSeconds(Js.ParseDate(to).AddHours(-23)), ["to"] = to });
         foreach (var name in svc?.KeyMetrics ?? []) Add("metrics_series", new() { ["service"] = incident.ServiceName, ["name"] = name, ["from"] = from, ["to"] = to });
+
+        // When the incident is about the service whose code this repo holds, search the code for terms from the
+        // incident, so even a provider without follow-up tool calls can cite the exact lines. Kept to a few searches.
+        if (!string.IsNullOrWhiteSpace(cfg.Code.Service) && string.Equals(cfg.Code.Service, incident.ServiceName, StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var term in CodeSearchTerms(incident))
+            {
+                Add("code_search", new() { ["phrase"] = term, ["max_matches"] = 12L });
+            }
+        }
         return calls;
+    }
+
+    private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "and", "for", "with", "without", "that", "this", "from", "into", "when", "were", "was", "are", "has", "have", "had",
+        "incident", "service", "users", "user", "than", "then", "some", "about", "after", "before", "being", "which", "their", "there",
+        "not", "but", "all", "any", "our", "out", "new", "old", "now", "via", "per", "its", "started", "suddenly", "getting",
+    };
+
+    /// <summary>Salient words from the incident's title and question, used to search the service's code. Up to four, longest first.</summary>
+    private static IEnumerable<string> CodeSearchTerms(Incident incident)
+    {
+        var text = $"{incident.Title} {incident.Description}";
+        var words = System.Text.RegularExpressions.Regex.Matches(text, "[A-Za-z][A-Za-z0-9_]{3,}")
+            .Select(m => m.Value)
+            .Where(w => !StopWords.Contains(w))
+            .GroupBy(w => w.ToLowerInvariant())
+            .Select(g => g.First())
+            .OrderByDescending(w => w.Length)
+            .Take(5)
+            .ToList();
+        return words.Count > 0 ? words : [incident.ServiceName];
     }
 }

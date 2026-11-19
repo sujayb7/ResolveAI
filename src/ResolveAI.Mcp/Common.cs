@@ -106,6 +106,8 @@ public sealed class CodeConfig
     public string? Branch { get; set; }
     /// <summary>Where the shallow clone is kept. Defaults to data/code-cache beside the config file.</summary>
     public string? CacheDir { get; set; }
+    /// <summary>The service whose source code this repository holds. An investigation of that service also searches the code.</summary>
+    public string? Service { get; set; }
 }
 
 public sealed class SqlServerConfig
